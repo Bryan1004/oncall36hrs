@@ -1,6 +1,7 @@
 import asyncio
 import time
 import httpx
+from app.quiet_hours import quiet_active
 
 
 class DeliveryError(Exception):
@@ -77,7 +78,7 @@ class Dispatcher:
         now = time.time() if now is None else now
         async with self.dispatch_lock:
             mode = self.store.get("mode")
-            if mode == "paused" or self.store.get("next_delivery") > now:
+            if mode == "paused" or quiet_active(self.store, now) or self.store.get("next_delivery") > now:
                 return
             alerts = [a for a in self.store.alerts(pending=True)
                       if a["platform"] in {"whatsapp", "telegram"}
@@ -93,7 +94,7 @@ class Dispatcher:
                 async def send_current():
                     selected_ids = set(ids)
                     current = [a for a in self.store.alerts(pending=True) if a['id'] in selected_ids]
-                    if self.store.get('mode') != mode or not current:
+                    if self.store.get('mode') != mode or quiet_active(self.store, now) or not current:
                         return 'cancelled'
                     ids[:] = [a['id'] for a in current]
                     return await self.notifier.send(mode, current)

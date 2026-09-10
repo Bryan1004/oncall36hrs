@@ -76,6 +76,16 @@
 <form id="interval-form"><label>在家响铃间隔（秒，至少 120）<input id="call-interval" type="number" min="120" max="86400" required></label><label>外出通知间隔（秒，至少 60）<input id="push-interval" type="number" min="60" max="86400" required></label><button class="primary" type="submit">保存间隔</button></form>
 </div>
 </details>
+<details class="card setup-card">
+<summary class="setup-card-summary"><div class="setup-card-title"><span class="eyebrow">04 / QUIET HOURS</span><h2>免打扰时段</h2></div><span class="setup-card-arrow" aria-hidden="true"></span></summary>
+<div class="setup-card-body"><form id="quiet-form">
+<label class="quiet-enabled"><input id="quiet-enabled" type="checkbox">启用定时免打扰</label>
+<div class="quiet-times"><label>开始时间<input id="quiet-start" type="time" required value="18:00"></label><label>结束时间<input id="quiet-end" type="time" required value="09:00"></label></div>
+<fieldset class="quiet-days"><legend>开始的星期</legend><label><input type="checkbox" name="quiet-day" value="0" checked>一</label><label><input type="checkbox" name="quiet-day" value="1" checked>二</label><label><input type="checkbox" name="quiet-day" value="2" checked>三</label><label><input type="checkbox" name="quiet-day" value="3" checked>四</label><label><input type="checkbox" name="quiet-day" value="4" checked>五</label><label><input type="checkbox" name="quiet-day" value="5" checked>六</label><label><input type="checkbox" name="quiet-day" value="6" checked>日</label></fieldset>
+<label>时区<select id="quiet-timezone"><option value="Asia/Kuala_Lumpur">马来西亚（UTC+8）</option><option value="Asia/Shanghai">中国（UTC+8）</option><option value="Asia/Singapore">新加坡（UTC+8）</option><option value="UTC">UTC</option></select></label>
+<p class="subtle">结束时间早于开始时间表示跨夜，例如周五 18:00 至周六 09:00。期间停止所有自动响铃和通知，消息仍会收集；结束后继续提醒未确认消息。手动测试仍会发送。</p>
+<p id="quiet-status" class="subtle" role="status"></p><button class="primary" type="submit">保存免打扰</button>
+</form></div></details>
 </div>
 </section>
 <footer>On Call 36 小时 / V0.1 <span>让提醒有回应。</span></footer>

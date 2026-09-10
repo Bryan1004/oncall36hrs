@@ -4,7 +4,7 @@ let groupPlatform=(()=>{try{const v=localStorage.getItem('group-platform');if(v=
 const groupDrafts={};
 function groupDraft(platform){const current=state.group_settings?.[platform]||{};return groupDrafts[platform]||(groupDrafts[platform]={keywords:[...(current.keywords||[])],baseKeywords:[...(current.keywords||[])],revision:current.revision||0,selections:{}});}
 function groupDirty(platform){const d=groupDrafts[platform];return !!d&&(Object.keys(d.selections).length>0||JSON.stringify(d.keywords)!==JSON.stringify(d.baseKeywords));}
-let intervalDirty=false;
+let intervalDirty=false,quietDirty=false;
 let state, page='inbox', toastTimer, loading=false;
 const names={home:'在家长响铃',away:'外出通知',paused:'暂停提醒'};
 const statusNames={connected:'已连接',connecting:'连接中',reconnecting:'连接中',needs_scan:'等待扫码',logged_out:'已退出，请重新关联',not_configured:'未配置',needs_login:'等待登录',waiting:'等待连接',offline:'连接中断',disconnected:'连接中断',error:'连接异常',message_error:'消息处理异常'};
@@ -27,6 +27,7 @@ function render(){
  const history=$('#history');history.replaceChildren();state.alerts.filter(a=>a.status!=='pending').slice(0,20).forEach(a=>history.append(alertCard(a,false)));
  const logs=$('#deliveries');logs.replaceChildren();if(!state.deliveries.length){logs.append(el('div','还没有发送记录。','log'));}for(const d of state.deliveries){const row=el('div',undefined,'log');row.append(el('span',date(d.created)+' · '+names[d.channel]),el('div',(d.status==='simulated'?'演练成功':d.status==='accepted'?'接口已接受':'发送失败')+(d.detail?' · '+d.detail:''),d.status==='failed'?'failed':''));logs.append(row);}
  renderGroups();renderConnections();
+ renderQuietHours();
  if(!intervalDirty)$('#call-interval').value=state.call_interval;
  if(!intervalDirty)$('#push-interval').value=state.push_interval;
 }
@@ -231,7 +232,7 @@ function bulkSelect(enabled){const draft=groupDraft(groupPlatform),query=$('#gro
 $('#group-select-all').onclick=()=>bulkSelect(true);$('#group-clear-all').onclick=()=>bulkSelect(false);
 $('#group-reset').onclick=()=>{delete groupDrafts[groupPlatform];renderGroups();};
 $('#group-save').onclick=()=>action(async()=>{if(groupSaving)return;const platform=groupPlatform,payload=JSON.parse(JSON.stringify(groupDraft(platform)));groupSaving=true;renderGroups();try{const result=await api('/api/group-settings/'+platform,payload);state.group_settings||={};state.group_settings[platform]={keywords:result.keywords,revision:result.revision};for(const g of state.groups.filter(g=>g.platform===platform))if(Object.hasOwn(payload.selections,g.id))g.enabled=payload.selections[g.id];delete groupDrafts[platform];toast('当前平台设置已保存');}finally{groupSaving=false;renderGroups();}});
-window.addEventListener('beforeunload',e=>{if(intervalDirty||Object.keys(sampleDrafts).length||(learningLoaded&&$('#responsibility-rules').value!==learningState.rules)||(state&&['whatsapp','telegram'].some(groupDirty))){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(intervalDirty||quietDirty||Object.keys(sampleDrafts).length||(learningLoaded&&$('#responsibility-rules').value!==learningState.rules)||(state&&['whatsapp','telegram'].some(groupDirty))){e.preventDefault();e.returnValue='';}});
 
 for(const [id,mode,label]of [['bark-home-form','home','在家'],['bark-form','away','外出']]){
  const form=$('#'+id);form.onsubmit=e=>{e.preventDefault();action(async()=>{const input=form.querySelector('input'),device_key=input.value;input.value='';const button=form.querySelector('button[type="submit"]');button.disabled=true;try{await api('/api/bark',{mode,device_key});toast(label+' Bark 配置已保存');}finally{button.disabled=false;}});};
@@ -527,3 +528,13 @@ document.addEventListener('touchend',()=>{
  else resetPull();
 },{passive:true});
 document.addEventListener('touchcancel',resetPull,{passive:true});
+
+function quietValues(){return {enabled:$('#quiet-enabled').checked,start:$('#quiet-start').value,end:$('#quiet-end').value,timezone:$('#quiet-timezone').value,days:[...document.querySelectorAll('[name="quiet-day"]:checked')].map(e=>Number(e.value))};}
+function renderQuietHours(){
+ const q=state.quiet_hours||{enabled:false,start:'18:00',end:'09:00',days:[0,1,2,3,4,5,6],timezone:'Asia/Kuala_Lumpur'};
+ if(!quietDirty){$('#quiet-enabled').checked=q.enabled;$('#quiet-start').value=q.start;$('#quiet-end').value=q.end;$('#quiet-timezone').value=q.timezone;document.querySelectorAll('[name="quiet-day"]').forEach(e=>e.checked=q.days.includes(Number(e.value)));}
+ $('#quiet-status').textContent=quietDirty?'有未保存修改':state.quiet_active?'当前处于免打扰时段':q.enabled?'已启用，当前不在免打扰时段':'免打扰未启用';
+ if(state.quiet_active){$('#delivery-badge').textContent='免打扰中';$('#delivery-badge').className='badge warn';$('#mode-note').textContent='免打扰中，自动提醒已暂停，消息仍会进入收件箱。时段结束后继续提醒未确认消息。';}
+}
+$('#quiet-form').oninput=()=>{quietDirty=true;renderQuietHours();};
+$('#quiet-form').onsubmit=e=>{e.preventDefault();action(async()=>{const q=quietValues();if(q.enabled&&(!q.days.length||q.start===q.end))throw Error('请选择星期，并设置不同的开始和结束时间');await api('/api/quiet-hours',q);quietDirty=JSON.stringify(q)!==JSON.stringify(quietValues());toast('免打扰设置已保存');});};

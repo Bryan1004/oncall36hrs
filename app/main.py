@@ -24,6 +24,7 @@ from app.config import Config
 from app.group_sync import WhatsAppGroupSync
 from app.store import Store
 from app.notify import Dispatcher, Notifier
+from app.quiet_hours import QuietHours, quiet_active
 from app.telegram import TelegramMonitor, LoginError
 
 
@@ -247,6 +248,7 @@ def create_app(config=None, workers=True):
         return {"mode": store.get("mode"), "delivery_enabled": config.delivery_enabled,
             "call_interval": store.get("call_interval"), "push_interval": store.get("push_interval"),
             "next_delivery": store.get("next_delivery"), "connections": connections,
+            "quiet_hours": store.get("quiet_hours") or QuietHours().model_dump(), "quiet_active": quiet_active(store),
             "configured": {"bark": bool(notifier.device_key("away")),
                 "bark_home": bool(notifier.device_key("home")), "bark_away": bool(notifier.device_key("away")),
                 "telegram": bool(config.telegram_api_id and config.telegram_api_hash)},
@@ -297,6 +299,11 @@ def create_app(config=None, workers=True):
     @app.post("/api/telegram/login/cancel")
     async def telegram_cancel_login():
         return await telegram.cancel_login()
+
+    @app.post("/api/quiet-hours")
+    async def save_quiet_hours(body: QuietHours):
+        store.set("quiet_hours", body.model_dump())
+        return {"ok": True}
 
     @app.post("/api/intervals")
     async def intervals(body: Intervals):
