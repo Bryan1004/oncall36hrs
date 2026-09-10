@@ -445,11 +445,31 @@ window.addEventListener('resize', () => {
 
 
 // Refresh in place so group selections and sample review drafts survive the gesture.
-const pullHint=el('div','下拉刷新','pull-refresh');pullHint.hidden=true;pullHint.setAttribute('role','status');document.body.append(pullHint);
+const pullHint=document.createElement('div');
+pullHint.className='pull-refresh';
+pullHint.setAttribute('role','status');
+pullHint.innerHTML='<span class="pull-icon"><svg class="pull-arrow" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg><svg class="pull-spinner" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity="0.25"></circle><path d="M12 3a9 9 0 0 1 9 9" stroke-linecap="round"></path></svg></span><span class="pull-text">下拉刷新</span>';
+document.body.append(pullHint);
+const pullText=pullHint.querySelector('.pull-text');
 let pullStart=null,pullDistance=0,pullBusy=false;
-function resetPull(){pullStart=null;pullDistance=0;if(!pullBusy)pullHint.hidden=true;}
+function resetPull(){
+ pullStart=null;pullDistance=0;
+ if(!pullBusy){
+  pullHint.style.transition='transform .25s ease, opacity .2s ease';
+  pullHint.style.transform='translate3d(-50%, -65px, 0)';
+  pullHint.style.opacity='0';
+  setTimeout(()=>{if(!pullBusy)pullHint.classList.remove('visible','ready','refreshing');},250);
+ }
+}
 async function pullRefresh(){
- if(pullBusy)return;pullBusy=true;pullHint.hidden=false;pullHint.textContent='正在刷新…';
+ if(pullBusy)return;
+ pullBusy=true;
+ pullHint.classList.add('visible','refreshing');
+ pullHint.classList.remove('ready');
+ pullHint.style.transition='transform .25s cubic-bezier(0.2, 0.8, 0.3, 1), opacity .2s ease';
+ pullHint.style.transform='translate3d(-50%, 18px, 0)';
+ pullHint.style.opacity='1';
+ pullText.textContent='正在刷新…';
  try{
   const current=await api('/api/state');
   const results=await Promise.allSettled(['whatsapp','telegram'].filter(p=>current.connections[p]?.state==='connected'&&!current.disconnected?.[p]).map(p=>api('/api/refresh/'+p,{})));
@@ -457,7 +477,16 @@ async function pullRefresh(){
   const failed=results.find(r=>r.status==='rejected');if(failed)throw failed.reason;
   toast('已刷新');
  }catch(error){showError(error);}
- finally{pullBusy=false;resetPull();}
+ finally{
+  pullBusy=false;
+  pullHint.style.transition='transform .3s ease, opacity .25s ease';
+  pullHint.style.transform='translate3d(-50%, -65px, 0)';
+  pullHint.style.opacity='0';
+  setTimeout(()=>{
+   pullHint.classList.remove('visible','ready','refreshing');
+   pullStart=null;pullDistance=0;
+  },300);
+ }
 }
 document.addEventListener('touchstart',e=>{
  if(pullBusy||!matchMedia('(max-width:760px)').matches||e.touches.length!==1||window.scrollY>0||document.querySelector('dialog[open]'))return;
@@ -467,9 +496,34 @@ document.addEventListener('touchstart',e=>{
 },{passive:true});
 document.addEventListener('touchmove',e=>{
  if(!pullStart)return;if(e.touches.length!==1){resetPull();return;}
+ if(window.scrollY>0){resetPull();return;}
  const dx=e.touches[0].clientX-pullStart.x,dy=e.touches[0].clientY-pullStart.y;
  if(dy<0||Math.abs(dx)>Math.abs(dy)){resetPull();return;}
- pullDistance=dy;if(dy>10){if(e.cancelable)e.preventDefault();pullHint.hidden=false;pullHint.textContent=dy>=75?'松开刷新':'下拉刷新';}
+ pullDistance=dy;
+ if(dy<=10){
+  pullHint.classList.remove('ready');
+  pullHint.style.transition='transform .2s ease, opacity .15s ease';
+  pullHint.style.transform='translate3d(-50%, -65px, 0)';
+  pullHint.style.opacity='0';
+ }else{
+  if(e.cancelable)e.preventDefault();
+  pullHint.classList.add('visible');
+  pullHint.style.transition='none';
+  const translateY=Math.min(Math.round((dy-10)*0.45),46);
+  pullHint.style.transform=`translate3d(-50%, ${translateY}px, 0)`;
+  pullHint.style.opacity=String(Math.min(1,(dy-10)/25));
+  if(dy>=75){
+   pullHint.classList.add('ready');
+   pullText.textContent='松开刷新';
+  }else{
+   pullHint.classList.remove('ready');
+   pullText.textContent='下拉刷新';
+  }
+ }
 },{passive:false});
-document.addEventListener('touchend',()=>{const ready=pullDistance>=75;resetPull();if(ready)pullRefresh();},{passive:true});
+document.addEventListener('touchend',()=>{
+ const ready=pullDistance>=75;
+ if(ready)pullRefresh();
+ else resetPull();
+},{passive:true});
 document.addEventListener('touchcancel',resetPull,{passive:true});
