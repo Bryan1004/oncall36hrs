@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>On Call 36 小时</title><link rel="icon" type="image/x-icon" href="/favicon.ico"><link rel="icon" type="image/png" sizes="32x32" href="/assets/favicon-32x32.png"><link rel="icon" type="image/png" sizes="16x16" href="/assets/favicon-16x16.png"><link rel="apple-touch-icon" href="/apple-touch-icon.png"><link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="apple-mobile-web-app-title" content="On Call 36h"><meta name="theme-color" content="#ffffff"><link rel="manifest" href="/manifest.json"><link rel="stylesheet" href="/assets/style.css"><script src="/assets/app.js" defer></script><script src="/assets/learning.js" defer></script></head>
+<body>
+<aside><a class="brand" href="/">◉ <span>On Call 36 小时</span></a>
+<div class="brand-audio"><button id="audio-toggle" class="audio-toggle-btn" type="button" aria-pressed="false" title="播放主题曲《续集》"><svg class="audio-play-icon" viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg><svg class="audio-pause-icon" viewBox="0 0 24 24" width="11" height="11" fill="currentColor" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg><span class="audio-label">主题曲 · 续集</span></button><audio id="theme-audio" src="/assets/theme.mp3" preload="none"></audio></div>
+<nav><button class="active" data-page="inbox">▤　提醒收件箱</button><button data-page="groups">◎　监控群组</button><button data-page="samples">▧　职责样本</button><button data-page="setup">⚙︎　连接与设置</button></nav>
+<div id="sidebar-connections" class="sidebar-connections" aria-label="账号连接状态"></div>
+</aside>
+<main>
+<header><div><span class="eyebrow">WORK, WITHOUT THE NOISE</span><h1 id="page-title">提醒收件箱</h1><p id="page-subtitle">需要你的时候，及时找到你。</p></div><div class="header-right"><span id="delivery-badge" class="badge">正在连接</span><span id="clock"></span></div></header>
+<div id="error" role="alert" hidden></div>
+<section class="mode-section"><div class="section-caption">当前提醒方式</div><div class="modes">
+<button class="mode" data-mode="home"><span class="mode-icon">⌂</span><span><strong>我在家</strong><small>Bark 长响铃 · 未确认重复</small></span><span class="radio"></span></button>
+<button class="mode" data-mode="away"><span class="mode-icon">◷</span><span><strong>我在外</strong><small>手表 / 手机 · 重复通知</small></span><span class="radio"></span></button>
+<button class="mode" data-mode="paused"><span class="mode-icon">Ⅱ</span><span><strong>暂停提醒</strong><small>继续收集 · 暂不打扰</small></span><span class="radio"></span></button>
+</div><p id="mode-note" class="subtle"></p></section>
+<section data-panel="inbox">
+<div class="stats"><div><span>待你确认</span><strong id="pending-count">—</strong><small>合并通知，逐条保留</small></div><div><span>已监控群组</span><div class="platform-counts"><div><span>WS</span><strong id="ws-group-count">—</strong></div><div><span>TG</span><strong id="tg-group-count">—</strong></div></div><small>只关注你选中的群</small></div><div><span>消息连接</span><strong id="connection-count">—</strong><small id="connection-note">等待账号授权</small></div></div>
+<div class="section-heading"><h2>待处理提醒 <span id="pending-chip" class="chip">0</span></h2><div class="actions"><button id="demo" class="secondary">＋ 添加演练消息</button><button id="ack-all" class="secondary">全部确认收到</button></div></div>
+<div id="alerts"></div>
+<div class="section-heading"><h2>最近发送记录</h2><span class="subtle">接口接受 ≠ 本人已收到</span></div><div id="deliveries" class="list-panel"></div>
+<details class="history"><summary>已确认 / 已取消的提醒</summary><div id="history"></div></details>
+</section>
+<section data-panel="groups" hidden>
+<div class="section-heading"><h2>选择需要关注的工作群<span class="info-tip"><button class="info-btn" type="button" aria-label="说明"><svg class="info-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="8" cy="4" r="1.25"/><rect x="6.75" y="6.75" width="2.5" height="6.5" rx="0.4"/></svg></button><span class="info-bubble">账号连接后自动读取群列表；手机在页面顶部下拉可刷新。群组勾选和隐藏关键词需点击「保存当前平台」后生效；保存取消勾选会停止该群的待处理提醒。</span></span></h2></div>
+<div class="group-platform-bar">
+<div class="group-tabs" role="tablist" aria-label="消息平台"><button id="tab-whatsapp" role="tab" aria-selected="true" aria-controls="group-tab-panel" data-group-platform="whatsapp">WhatsApp <span id="ws-tab-count" class="chip">0</span></button><button id="tab-telegram" role="tab" aria-selected="false" aria-controls="group-tab-panel" tabindex="-1" data-group-platform="telegram">Telegram <span id="tg-tab-count" class="chip">0</span></button></div>
+<div class="group-platform-actions"><span id="group-draft-note" class="draft-note" role="status"></span><button id="group-reset" class="secondary" type="button">撤销修改</button><button id="group-save" class="primary" type="button">保存当前平台</button></div>
+</div>
+<div id="group-tab-panel" role="tabpanel" aria-labelledby="tab-whatsapp">
+<div class="group-filter"><form id="group-filter-form"><label for="group-keyword">隐藏群名关键词（当前平台）<span class="info-tip"><button class="info-btn" type="button" aria-label="说明"><svg class="info-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="8" cy="4" r="1.25"/><rect x="6.75" y="6.75" width="2.5" height="6.5" rx="0.4"/></svg></button><span class="info-bubble">群名包含任一关键词就会从列表隐藏；隐藏不取消监控，已勾选群仍会提醒。</span></span></label><div class="filter-entry"><input id="group-keyword" type="text" maxlength="100" placeholder="例如：小时群" required><button class="secondary" type="submit">添加关键词</button></div></form><div id="group-keywords" class="keyword-chips"></div></div>
+<div class="group-list-toolbar"><div class="group-search-wrap"><input id="group-search" type="search" placeholder="搜索群名称…" aria-label="搜索群名称"></div><div class="group-bulk actions"><button id="group-select-all" class="secondary" type="button">全选当前列表</button><button id="group-clear-all" class="secondary" type="button">取消选择当前列表</button></div></div>
+<div class="group-list-meta"><div class="group-results-wrap"><p id="group-results" class="subtle" role="status"></p><span class="info-tip"><button class="info-btn" type="button" aria-label="说明"><svg class="info-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="8" cy="4" r="1.25"/><rect x="6.75" y="6.75" width="2.5" height="6.5" rx="0.4"/></svg></button><span class="info-bubble">批量操作仅影响当前搜索结果，不包含隐藏群组。</span></span></div></div>
+<div id="groups" class="group-grid"></div><details id="hidden-groups-section" class="hidden-groups"><summary id="hidden-groups-summary">隐藏的群组</summary><p class="subtle">此处可单独修改监控勾选；隐藏不会自动取消监控。</p><div id="hidden-groups" class="group-grid"></div></details></div>
+</section>
+<section data-panel="samples" hidden>
+<div class="section-heading"><h2>职责与样本版本</h2><span class="subtle">人工审核 → 发布版本 → 云端试判 → 对比</span></div>
+<div class="learning-grid"><article class="card"><h2>我的职责</h2><form id="rules-form"><label>负责的服务、职责边界与紧急例外<textarea id="responsibility-rules" rows="6" maxlength="20000" placeholder="例如：负责生产支付服务；测试环境问题不需要我处理。"></textarea></label><button class="primary">保存职责草稿</button></form></article>
+<article class="card"><h2>发布样本版本<span class="info-tip"><button class="info-btn" type="button" aria-label="说明"><svg class="info-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="8" cy="4" r="1.25"/><rect x="6.75" y="6.75" width="2.5" height="6.5" rx="0.4"/></svg></button><span class="info-bubble">发布会冻结已审核样本、上下文与已保存职责。后续修改进入下一版；不会启动模型微调。</span></span></h2><p id="learning-count" class="subtle"></p><form id="publish-form"><label>版本说明<input id="version-note" maxlength="1000" placeholder="例如：补充数据库故障判断"></label><button class="primary">发布新版本</button></form><div id="dataset-versions"></div></article></div>
+<details class="learning-cloud"><summary>云端 AI 配置与试判</summary><div class="learning-grid"><article class="card"><form id="ai-config-form"><label>API 基础地址（Chat Completions 兼容）<input id="ai-base" type="url" required></label><label>模型名称<input id="ai-model" maxlength="150" required placeholder="填写服务商提供的模型 ID"></label><label>API Key<input id="ai-key" type="password" autocomplete="off" placeholder="已配置时留空保留"></label><button class="primary">保存 AI 配置</button></form><p id="ai-config-status" class="subtle"></p></article>
+<article class="card"><form id="ai-eval-form"><label>候选样本版本<select id="ai-candidate" required></select></label><label>对比版本<select id="ai-baseline"></select></label><label>最多验收条数（1–20）<input id="ai-limit" type="number" min="1" max="20" value="10" required></label><label>验收范围<select id="ai-sampling"><option value="spread">均匀覆盖全部验收样本</option><option value="latest">最新验收样本</option></select></label><button id="ai-start" class="primary">发送样本并开始云端试判</button></form><p class="subtle">会把验收消息、上下文、职责与参考案例发给配置的服务商，可能产生 API 费用。最多 40 次调用，不触发 Bark。验收群的案例不会作为参考输入。</p></article></div><div id="ai-runs"></div><div id="ai-result"></div></details>
+<div id="version-detail" class="card" hidden></div>
+<div class="section-heading"><h2>审核消息<span class="info-tip"><button class="info-btn" type="button" aria-label="说明"><svg class="info-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="8" cy="4" r="1.25"/><rect x="6.75" y="6.75" width="2.5" height="6.5" rx="0.4"/></svg></button><span class="info-bubble">参考样本用于提供判断示例；验收样本用于测试，按群或事件分组，避免同一事件混入两边。标注不会触发提醒。仅审核含文字或文字说明的消息。自己的消息仅作为前文；旧记录可展开后标记「这是我发的」。</span></span></h2><div class="actions sample-pagination"><button id="samples-prev" class="secondary">上一页</button><span id="samples-page"></span><button id="samples-next" class="secondary">下一页</button></div></div>
+<div class="group-tabs" role="tablist" aria-label="样本平台"><button role="tab" aria-selected="true" data-sample-platform="whatsapp">WhatsApp <span id="ws-sample-count" class="chip">0</span></button><button role="tab" aria-selected="false" tabindex="-1" data-sample-platform="telegram">Telegram <span id="tg-sample-count" class="chip">0</span></button></div><div id="samples"></div>
+</section>
+<section data-panel="setup" hidden>
+<div class="settings-grid">
+<details class="card setup-card sources-card">
+<summary class="setup-card-summary"><div class="setup-card-title"><span class="eyebrow">01 / MESSAGE SOURCES</span><h2>连接消息账号</h2></div><span class="setup-card-arrow" aria-hidden="true"></span></summary>
+<div class="setup-card-body">
+<div class="group-tabs" role="tablist" aria-label="消息账号平台"><button id="conn-tab-whatsapp" role="tab" aria-selected="true" data-conn-platform="whatsapp">WhatsApp</button><button id="conn-tab-telegram" role="tab" aria-selected="false" tabindex="-1" data-conn-platform="telegram">Telegram</button></div>
+<div id="connections"></div>
+<div class="source-login-content"><div id="wa-login" hidden><h3>登录 WhatsApp</h3><div id="qr-box"><img id="qr-image" alt="WhatsApp 关联设备二维码" hidden></div><p id="wa-status" class="subtle" role="status"></p></div>
+<div class="telegram-login" hidden><h3>登录 Telegram</h3><p id="tg-status" class="subtle" role="status">正在读取登录状态…</p>
+<form id="tg-phone-form" hidden><label>手机号（含国家区号）<input id="tg-phone" type="tel" placeholder="+60123456789" autocomplete="off" maxlength="30" required></label><button class="primary" type="submit">获取验证码</button></form>
+<form id="tg-code-form" hidden><label>Telegram 登录验证码<input id="tg-code" inputmode="numeric" pattern="[0-9]{4,10}" autocomplete="one-time-code" maxlength="10" required></label><div class="actions"><button class="primary" type="submit">验证并登录</button><button id="tg-cancel" class="secondary tg-cancel-btn" type="button">重新输入手机号</button></div></form>
+<form id="tg-password-form" hidden><label>两步验证密码<input id="tg-password" type="password" autocomplete="current-password" maxlength="256" required></label><div class="actions"><button class="primary" type="submit">完成登录</button><button id="tg-pwd-cancel" class="secondary tg-cancel-btn" type="button">重新输入手机号</button></div></form>
+<p id="tg-error" role="alert" hidden></p><button id="tg-groups" class="secondary" hidden>选择监控群组</button>
+</div></div>
+</div>
+</details>
+<details class="card setup-card">
+<summary class="setup-card-summary"><div class="setup-card-title"><span class="eyebrow">02 / DELIVERY</span><h2>提醒通道</h2></div><span class="setup-card-arrow" aria-hidden="true"></span></summary>
+<div class="setup-card-body">
+<div id="providers"></div>
+<div class="group-tabs delivery-tabs" role="tablist" aria-label="Bark 提醒模式"><button id="bark-tab-home" role="tab" aria-selected="true" data-bark-tab="home">在家</button><button id="bark-tab-away" role="tab" aria-selected="false" tabindex="-1" data-bark-tab="away">外出</button></div>
+<form id="bark-home-form" class="bark-mode-form" role="tabpanel" aria-labelledby="bark-tab-home"><label>在家 · Bark Device Key<input id="bark-home-key" type="password" autocomplete="off" maxlength="256" placeholder="填写在家响铃设备的 Key" required></label><div class="actions"><button class="primary" type="submit">保存在家配置</button><button class="secondary" type="button" data-test="home">测试在家长响铃</button></div></form>
+<form id="bark-form" class="bark-mode-form" role="tabpanel" aria-labelledby="bark-tab-away" hidden><label>外出 · Bark Device Key<input id="bark-key" type="password" autocomplete="off" maxlength="256" placeholder="已配置时无需重填，输入可更换 Key" required></label><div class="actions"><button class="primary" type="submit">保存外出配置</button><button class="secondary" type="button" data-test="away">测试手机 / 手表通知</button></div></form>
+<p id="test-note" class="subtle">两个模式独立保存和测试。测试无冷却间隔，不影响正式提醒计划。</p>
+</div>
+</details>
+<details class="card setup-card">
+<summary class="setup-card-summary"><div class="setup-card-title"><span class="eyebrow">03 / RETRIES</span><h2>重复提醒间隔<span class="info-tip"><button class="info-btn" type="button" aria-label="说明"><svg class="info-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="8" cy="4" r="1.25"/><rect x="6.75" y="6.75" width="2.5" height="6.5" rx="0.4"/></svg></button><span class="info-bubble">提醒会持续到确认或暂停。已送达的通知无法撤回，但确认后不会再发送下一次。</span></span></h2></div><span class="setup-card-arrow" aria-hidden="true"></span></summary>
+<div class="setup-card-body">
+<form id="interval-form"><label>在家响铃间隔（秒，至少 120）<input id="call-interval" type="number" min="120" max="86400" required></label><label>外出通知间隔（秒，至少 60）<input id="push-interval" type="number" min="60" max="86400" required></label><button class="primary" type="submit">保存间隔</button></form>
+</div>
+</details>
+</div>
+</section>
+<footer>On Call 36 小时 / V0.1 <span>让提醒有回应。</span></footer>
+</main><div id="toast" role="status" hidden></div>
+</body></html>
