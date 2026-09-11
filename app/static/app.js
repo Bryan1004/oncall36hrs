@@ -75,11 +75,12 @@ function renderConnections(){
  const name=connPlatform;
  const c=state.connections[name]||{state:'waiting'},online=c.state==='connected',row=el('div',undefined,'status-row'),status=el('span',undefined,'connection-status'),dot=el('i',undefined,'status-dot '+connectionTone(c.state));
  dot.setAttribute('aria-hidden','true');status.append(dot,document.createTextNode(statusNames[c.state]||c.state));
- const btnText=state.disconnected?.[name]?'重新连接':'断开连接';
+ const isDisconnected=!!state.disconnected?.[name]||['logged_out','disconnected','not_configured'].includes(c.state);
+ const btnText=isDisconnected?'重新连接':'断开连接';
  const controls=el('div',undefined,'connection-controls'),button=el('button',btnText,'secondary');
  button.type='button';button.setAttribute('aria-label',btnText+' '+(name==='whatsapp'?'WhatsApp':'Telegram'));
  button.onclick=()=>{
-  const disconnect=!state.disconnected?.[name],platform=name==='whatsapp'?'WhatsApp':'Telegram';
+  const disconnect=!isDisconnected,platform=name==='whatsapp'?'WhatsApp':'Telegram';
   if(disconnect){
    const confirmMsg=`确认退出 ${platform}？\n这会清除服务器上的登录会话，停止接收新消息。下次需要重新${name==='whatsapp'?'扫码':'输入手机号、验证码及两步验证密码（若有）'}。\n已选群组和历史消息保留，已有待处理提醒仍需确认或暂停。`;
    if(!window.confirm(confirmMsg))return;
@@ -178,7 +179,7 @@ async function showQr(){
   }
   $('#qr-box').hidden=!status.image;$('#qr-image').hidden=!status.image;
   if(status.image){$('#qr-image').src=status.image;$('#wa-status').textContent='打开 WhatsApp → 已关联设备 → 关联设备，扫描二维码。';}
-  else{$('#qr-image').removeAttribute('src');$('#wa-status').textContent=status.state==='logged_out'?'登录已失效，请断开连接后重新登录。':status.state==='connected'?'登录已恢复，正在更新连接状态…':'正在连接 WhatsApp…';}
+  else{$('#qr-image').removeAttribute('src');$('#wa-status').textContent=status.state==='logged_out'?'登录已失效，请点击「重新连接」重新扫码。':status.state==='connected'?'登录已恢复，正在更新连接状态…':'正在连接 WhatsApp…';}
  }catch(e){$('#qr-box').hidden=true;$('#qr-image').removeAttribute('src');$('#wa-status').textContent='暂时无法读取二维码：'+e.message;showError(e);}
  finally{qrLoading=false;}
 }

@@ -141,13 +141,16 @@ http.createServer(async (req, res) => {
           await rm(path.join(dir,'auth'),{recursive:true,force:true});
           await rm(path.join(dir,'spool'),{recursive:true,force:true});
           await mkdir(path.join(dir,'spool'),{recursive:true});
-        }else if(paused){
-          // Old paused sessions must not be reused after the behavior change.
+        }else{
+          clearTimeout(reconnectTimer);
+          const prior=socket;socket=null;
+          prior?.end(new Error('Restarting connection'));
           await authWrites;
           await rm(path.join(dir,'auth'),{recursive:true,force:true});
           await rm(path.join(dir,'spool'),{recursive:true,force:true});
           await mkdir(path.join(dir,'spool'),{recursive:true});
-          await unlink(pauseFile);paused=false;state='connecting';await start();
+          try{await unlink(pauseFile);}catch{}
+          paused=false;state='connecting';await start();
         }
         res.end(JSON.stringify({ok:true,remote_logout:remoteLogout}));
       } finally {controlBusy=false;}
