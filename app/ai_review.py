@@ -82,10 +82,18 @@ def install_ai(app,store):
         store.set('ai_config',{'base_url':url,'model':body.model.strip()})
         return {'ok':True}
 
-    def load_version(vid):
+    def load_version(vid, allow_superseded=False):
         rows=store.rows('SELECT * FROM dataset_versions WHERE id=?',(vid,))
         if not rows:raise HTTPException(404,'样本版本不存在')
-        row=rows[0];row['samples']=json.loads(row['samples']);return row
+        row=rows[0];row['samples']=json.loads(row['samples'])
+        # Defensively filter out mention samples from frozen snapshots
+        row['samples']=[s for s in row['samples'] if s.get('reason') != 'mention']
+        if not allow_superseded:
+            migration_map = store.get('mention_migration_map') or {}
+            retired = store.get('mention_migration_retired') or []
+            if str(vid) in migration_map or vid in retired:
+                raise HTTPException(409, '该版本已被清理替代或已停用，请选择其他版本')
+        return row
 
     async def execute(rid, cfg, key, versions, tests):
         results=[];usage={'prompt_tokens':0,'completion_tokens':0}
@@ -102,7 +110,7 @@ def install_ai(app,store):
                 for version in versions:
                     # Entire evaluation chats are excluded from examples for this run.
                     excluded={(t['platform'],t['chat_id']) for t in tests}
-                    refs=[r for r in version['samples'] if r['split']=='reference' and (r['platform'],r['chat_id']) not in excluded]
+                    refs=[r for r in version['samples'] if r['split']=='reference' and (r['platform'],r['chat_id']) not in excluded and r.get('reason') != 'mention']
                     for sample in tests:
                         if cancelled():return
                         compact=lambda r:{'text':r['text'],'context':r['context'],'service':r['service']}

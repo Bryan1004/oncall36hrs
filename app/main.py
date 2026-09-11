@@ -428,7 +428,7 @@ def create_app(config=None, workers=True):
     @app.get("/api/samples")
     async def samples():
         return store.rows("""SELECT m.*,g.title FROM messages m JOIN groups g
-          ON g.platform=m.platform AND g.id=m.chat_id WHERE m.platform IN ('telegram','whatsapp') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1
+          ON g.platform=m.platform AND g.id=m.chat_id WHERE m.platform IN ('telegram','whatsapp') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention'
           ORDER BY m.id DESC LIMIT 100""")
 
     @app.get("/api/samples/{mid}/context")
@@ -442,7 +442,7 @@ def create_app(config=None, workers=True):
 
     @app.post("/api/samples/{mid}/label")
     async def label(mid: int, body: Label):
-        cur = store.db.execute("UPDATE messages SET label=?,urgent=? WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1", (body.label, body.urgent, mid))
+        cur = store.db.execute("UPDATE messages SET label=?,urgent=? WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention'", (body.label, body.urgent, mid))
         store.db.commit()
         if not cur.rowcount:
             raise HTTPException(404)
@@ -450,7 +450,7 @@ def create_app(config=None, workers=True):
 
     @app.get("/api/export")
     async def export():
-        rows = store.rows("SELECT * FROM messages WHERE label IS NOT NULL AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 ORDER BY id")
+        rows = store.rows("SELECT * FROM messages WHERE label IS NOT NULL AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' ORDER BY id")
         return Response("\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
             media_type="application/x-ndjson", headers={"Content-Disposition": 'attachment; filename="labels.jsonl"'})
 

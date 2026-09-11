@@ -131,7 +131,7 @@ async def test_nontext_excluded_from_review_but_captions_and_alerts_remain(tmp_p
         s=app.state.store;s.upsert_groups(platform,[{'id':'1','title':'test'}]);s.select(platform,'1',True)
         mids=[]
         for i,text in enumerate(['[非文字消息]','  \n\t\u3000','', '图片说明：生产报错，请处理']):
-            mids.append(s.ingest(dict(platform=platform,chat_id='1',message_id=str(i),timestamp=time.time(),text=text,mentioned=True)))
+            mids.append(s.ingest(dict(platform=platform,chat_id='1',message_id=str(i),timestamp=time.time(),text=text,reply_to_me=True)))
         # Legacy reviewed placeholders must also disappear from new drafts and exports.
         s.db.execute("UPDATE messages SET label='action' WHERE id=?",(mids[0],));s.db.commit()
         result=(await c.get('/api/learning/samples?platform='+platform)).json()

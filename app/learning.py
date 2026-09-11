@@ -33,11 +33,13 @@ def install_learning(app, store):
     ''')
     router=APIRouter(prefix='/api/learning')
 
+    SAMPLE_FILTER = "m.platform IN ('whatsapp','telegram') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention'"
+
     def samples():
         rows=store.rows('''SELECT m.*,g.title,r.service,r.rationale,r.split,r.context
             FROM messages m JOIN groups g ON m.platform=g.platform AND m.chat_id=g.id
             LEFT JOIN sample_reviews r ON r.message_id=m.id
-            WHERE m.platform IN ('whatsapp','telegram') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND m.label IS NOT NULL ORDER BY m.id''')
+            WHERE '''+SAMPLE_FILTER+''' AND m.label IS NOT NULL ORDER BY m.id''')
         for row in rows:
             row['context']=json.loads(row['context']) if row['context'] else context(row)
             row['split']=row['split'] or 'reference'
@@ -54,6 +56,8 @@ def install_learning(app, store):
     @router.get('')
     async def overview():
         versions=store.rows('SELECT * FROM dataset_versions ORDER BY id DESC')
+        migration_map = store.get('mention_migration_map') or {}
+        retired = store.get('mention_migration_retired') or []
         previous={}
         for version in reversed(versions):
             rows=json.loads(version.pop('samples'))
@@ -64,6 +68,11 @@ def install_learning(app, store):
             version['removed']=len(previous.keys()-current.keys())
             version['changed']=sum(current[k]!=previous[k] for k in current.keys()&previous.keys())
             previous=current
+            vid=version['id']
+            if str(vid) in migration_map:
+                version['superseded_by']=migration_map[str(vid)]
+            if vid in retired:
+                version['retired']=True
         rows=samples()
         return {'rules':store.get('responsibility_rules') or '', 'versions':versions,
                 'active':store.get('active_dataset'), 'reviewed':len(rows),
@@ -75,8 +84,8 @@ def install_learning(app, store):
         rows=store.rows('''SELECT m.*,g.title,r.service,r.rationale,r.split FROM messages m
           JOIN groups g ON m.platform=g.platform AND m.chat_id=g.id
           LEFT JOIN sample_reviews r ON r.message_id=m.id
-          WHERE m.platform=? AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 ORDER BY m.id DESC LIMIT 50 OFFSET ?''',(platform,offset))
-        counts={p:store.rows('SELECT count(*) AS n FROM messages WHERE platform=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1',(p,))[0]['n'] for p in ('whatsapp','telegram')}
+          WHERE m.platform=? AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention' ORDER BY m.id DESC LIMIT 50 OFFSET ?''',(platform,offset))
+        counts={p:store.rows("SELECT count(*) AS n FROM messages WHERE platform=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention'",(p,))[0]['n'] for p in ('whatsapp','telegram')}
         return {'items':rows,'total':counts[platform],'counts':counts}
 
     @router.post('/rules')
@@ -86,7 +95,7 @@ def install_learning(app, store):
 
     @router.post('/samples/{mid}')
     async def review(mid:int, body:Review):
-        rows=store.rows("SELECT * FROM messages WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND platform IN ('whatsapp','telegram')",(mid,))
+        rows=store.rows("SELECT * FROM messages WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' AND platform IN ('whatsapp','telegram')",(mid,))
         if not rows: raise HTTPException(404)
         snapshot=context(rows[0])
         with store.db:
@@ -132,7 +141,11 @@ def install_learning(app, store):
 
     @router.post('/versions/{vid}/activate')
     async def activate(vid:int):
-        await version(vid)
+        v = await version(vid)
+        migration_map = store.get('mention_migration_map') or {}
+        retired = store.get('mention_migration_retired') or []
+        if str(vid) in migration_map or vid in retired:
+            raise HTTPException(409, '该版本已被清理替代或已停用，请选择其他版本')
         store.set('active_dataset',vid)
         return {'ok':True}
 
