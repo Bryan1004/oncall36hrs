@@ -1,6 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const el = (tag, text, cls) => {const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n;};
-let groupPlatform=(()=>{try{const v=localStorage.getItem('group-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),groupSaving=false,samplePlatform=(()=>{try{const v=localStorage.getItem('sample-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),cachedSamples=[],connPlatform=(()=>{try{const v=localStorage.getItem('conn-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),lastTgLogin=null;
+let groupPlatform=(()=>{try{const v=localStorage.getItem('group-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),groupSaving=false,samplePlatform=(()=>{try{const v=localStorage.getItem('sample-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),cachedSamples=[],connPlatform=(()=>{try{const v=localStorage.getItem('conn-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),lastTgLogin=null,groupStatusFilter=(()=>{try{const v=localStorage.getItem('group-status-filter');if(v==='monitored'||v==='all')return v;}catch{}return 'all';})();
 const groupDrafts={};
 function groupDraft(platform){const current=state.group_settings?.[platform]||{};return groupDrafts[platform]||(groupDrafts[platform]={keywords:[...(current.keywords||[])],baseKeywords:[...(current.keywords||[])],revision:current.revision||0,selections:{}});}
 function groupDirty(platform){const d=groupDrafts[platform];return !!d&&(Object.keys(d.selections).length>0||JSON.stringify(d.keywords)!==JSON.stringify(d.baseKeywords));}
@@ -41,6 +41,9 @@ function renderGroups(){
  if(!groupDirty(groupPlatform)&&!groupSaving)delete groupDrafts[groupPlatform];
  const draft=groupDraft(groupPlatform),query=$('#group-search').value.trim().toLowerCase();
  const isHidden=(g,keywords=draft.keywords)=>keywords.some(k=>g.title.toLowerCase().includes(k.toLowerCase()));
+ const isMonitored=g=>Object.hasOwn(draft.selections,g.id)?draft.selections[g.id]:!!g.enabled;
+ const isMonitoredOnly=groupStatusFilter==='monitored';
+ if($('#group-status-filter'))$('#group-status-filter').value=groupStatusFilter;
  for(const [platform,id]of [['whatsapp','ws'],['telegram','tg']]){
   if(platform!==groupPlatform&&!groupDirty(platform)&&!groupSaving)delete groupDrafts[platform];
   const keywords=groupDraft(platform).keywords;
@@ -48,16 +51,18 @@ function renderGroups(){
  }
  document.querySelectorAll('[data-group-platform]').forEach(b=>{const active=b.dataset.groupPlatform===groupPlatform;b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1;});
  $('#group-tab-panel').setAttribute('aria-labelledby','tab-'+groupPlatform);
- const all=state.groups.filter(g=>g.platform===groupPlatform),hidden=all.filter(g=>isHidden(g)),visible=all.filter(g=>!isHidden(g)&&g.title.toLowerCase().includes(query));
+ const all=state.groups.filter(g=>g.platform===groupPlatform),hidden=all.filter(g=>isHidden(g)),visible=all.filter(g=>!isHidden(g)&&g.title.toLowerCase().includes(query)&&(!isMonitoredOnly||isMonitored(g)));
  $('#group-results').textContent=`未隐藏 ${all.length-hidden.length} 个群 · 当前列表 ${visible.length} 个 · 已生效监控 ${all.filter(g=>g.enabled).length} 个`;
  updateGroupActions();
  for(const id of ['group-select-all','group-clear-all'])$('#'+id).disabled=groupSaving||!visible.length;
  $('#group-keyword').disabled=groupSaving;$('#group-filter-form button').disabled=groupSaving;
  const chips=$('#group-keywords');chips.replaceChildren();for(const keyword of draft.keywords){const button=el('button',keyword+' ×','keyword-chip');button.type='button';button.disabled=groupSaving;button.setAttribute('aria-label','移除隐藏关键词：'+keyword);button.onclick=()=>{groupDraft(groupPlatform).keywords=groupDraft(groupPlatform).keywords.filter(k=>k!==keyword);renderGroups();};chips.append(button);}
  const makeRow=g=>{const row=el('label',undefined,'group-card'),check=el('input');check.type='checkbox';check.checked=Object.hasOwn(draft.selections,g.id)?draft.selections[g.id]:!!g.enabled;check.disabled=groupSaving;check.onchange=()=>{const d=groupDraft(groupPlatform);if(check.checked===!!g.enabled)delete d.selections[g.id];else d.selections[g.id]=check.checked;updateGroupActions();};const text=el('span',g.title);text.append(el('small',(g.platform==='whatsapp'?'WHATSAPP BUSINESS':'TELEGRAM')+(isHidden(g)?' · 已隐藏':'')));row.append(check,text);return row;};
- const target=$('#groups');const prevHeight=target.offsetHeight;if(prevHeight>0)target.style.minHeight=prevHeight+'px';target.replaceChildren();if(!visible.length)empty(target,'没有符合条件的群组','可调整搜索或隐藏关键词；隐藏群组在下方展开查看。');else visible.forEach(g=>target.append(makeRow(g)));requestAnimationFrame(()=>{target.style.minHeight='';});
- $('#hidden-groups-section').hidden=!hidden.length;$('#hidden-groups-summary').textContent=`隐藏的群组（${hidden.length}） · 其中 ${hidden.filter(g=>g.enabled).length} 个仍在监控`;
- const hiddenTarget=$('#hidden-groups');hiddenTarget.replaceChildren();hidden.forEach(g=>hiddenTarget.append(makeRow(g)));
+ const target=$('#groups');const prevHeight=target.offsetHeight;if(prevHeight>0)target.style.minHeight=prevHeight+'px';target.replaceChildren();if(!visible.length){if(isMonitoredOnly)empty(target,'暂无在监控的群组','当前未开启任何群组监控，可将筛选切换为「全部群组」进行选择。');else empty(target,'没有符合条件的群组','可调整搜索或隐藏关键词；隐藏群组在下方展开查看。');}else visible.forEach(g=>target.append(makeRow(g)));requestAnimationFrame(()=>{target.style.minHeight='';});
+ const hiddenVisible=isMonitoredOnly?hidden.filter(g=>isMonitored(g)):hidden;
+ $('#hidden-groups-section').hidden=!hiddenVisible.length;
+ $('#hidden-groups-summary').textContent=isMonitoredOnly?`隐藏的在监控群组（${hiddenVisible.length}）`:`隐藏的群组（${hidden.length}） · 其中 ${hidden.filter(g=>g.enabled).length} 个仍在监控`;
+ const hiddenTarget=$('#hidden-groups');hiddenTarget.replaceChildren();hiddenVisible.forEach(g=>hiddenTarget.append(makeRow(g)));
 }
 
 function connectionTone(status){return status==='connected'?'online':['connecting','reconnecting','waiting','needs_scan','needs_login'].includes(status)?'pending':'offline';}
@@ -158,6 +163,7 @@ document.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>action(async()
 $('#demo').onclick=()=>action(async()=>{await api('/api/demo',{});toast('已添加演练消息；切换在家或外出模式可测试调度');});
 $('#ack-all').onclick=()=>action(async()=>{await api('/api/ack-all',{});toast('当前显示的提醒已全部确认');});
 $('#group-search').oninput=()=>{if(state)renderGroups();};
+$('#group-status-filter').onchange=function(){groupStatusFilter=this.value;try{localStorage.setItem('group-status-filter',groupStatusFilter);}catch{}if(state)renderGroups();};
 $('#interval-form').oninput=()=>{intervalDirty=true;};
 $('#interval-form').onsubmit=e=>{e.preventDefault();action(async()=>{const values={call_interval:Number($('#call-interval').value),push_interval:Number($('#push-interval').value)};await api('/api/intervals',values);intervalDirty=Number($('#call-interval').value)!==values.call_interval||Number($('#push-interval').value)!==values.push_interval;toast('间隔已保存');});};
 let qrLoading=false;
@@ -228,7 +234,7 @@ document.querySelectorAll('[data-conn-platform]').forEach(b=>{
  b.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const platform=e.key==='Home'?'whatsapp':e.key==='End'?'telegram':connPlatform==='whatsapp'?'telegram':'whatsapp';const next=document.querySelector('[data-conn-platform="'+platform+'"]');next.click();next.focus();}};
 });
 $('#group-filter-form').onsubmit=e=>{e.preventDefault();if(groupSaving)return;const input=$('#group-keyword'),keyword=input.value.trim(),draft=groupDraft(groupPlatform);if(!keyword)return;if(draft.keywords.length>=50){toast('最多添加 50 个关键词');return;}if(!draft.keywords.some(k=>k.toLowerCase()===keyword.toLowerCase()))draft.keywords.push(keyword);input.value='';renderGroups();};
-function bulkSelect(enabled){const draft=groupDraft(groupPlatform),query=$('#group-search').value.trim().toLowerCase();for(const g of state.groups.filter(g=>g.platform===groupPlatform&&g.title.toLowerCase().includes(query)&&!draft.keywords.some(k=>g.title.toLowerCase().includes(k.toLowerCase())))){if(enabled===!!g.enabled)delete draft.selections[g.id];else draft.selections[g.id]=enabled;}document.querySelectorAll('#groups .group-card input[type="checkbox"]').forEach(c=>{c.checked=enabled;});updateGroupActions();}
+function bulkSelect(enabled){const draft=groupDraft(groupPlatform),query=$('#group-search').value.trim().toLowerCase(),isMonitored=g=>Object.hasOwn(draft.selections,g.id)?draft.selections[g.id]:!!g.enabled,isMonitoredOnly=groupStatusFilter==='monitored';for(const g of state.groups.filter(g=>g.platform===groupPlatform&&g.title.toLowerCase().includes(query)&&!draft.keywords.some(k=>g.title.toLowerCase().includes(k.toLowerCase()))&&(!isMonitoredOnly||isMonitored(g)))){if(enabled===!!g.enabled)delete draft.selections[g.id];else draft.selections[g.id]=enabled;}document.querySelectorAll('#groups .group-card input[type="checkbox"]').forEach(c=>{c.checked=enabled;});updateGroupActions();}
 $('#group-select-all').onclick=()=>bulkSelect(true);$('#group-clear-all').onclick=()=>bulkSelect(false);
 $('#group-reset').onclick=()=>{delete groupDrafts[groupPlatform];renderGroups();};
 $('#group-save').onclick=()=>action(async()=>{if(groupSaving)return;const platform=groupPlatform,payload=JSON.parse(JSON.stringify(groupDraft(platform)));groupSaving=true;renderGroups();try{const result=await api('/api/group-settings/'+platform,payload);state.group_settings||={};state.group_settings[platform]={keywords:result.keywords,revision:result.revision};for(const g of state.groups.filter(g=>g.platform===platform))if(Object.hasOwn(payload.selections,g.id))g.enabled=payload.selections[g.id];delete groupDrafts[platform];toast('当前平台设置已保存');}finally{groupSaving=false;renderGroups();}});
