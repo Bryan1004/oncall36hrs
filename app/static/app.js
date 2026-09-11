@@ -89,7 +89,7 @@ function renderConnections(){
    if(result.remote_logout===false)showError(Error('本地登录会话已清除；远端退出未确认，可在 '+platform+' 的设备设置中移除此设备。'));
   });
  };
- controls.append(status,button);row.append(el('strong',name==='whatsapp'?'WhatsApp Business':'Telegram'),controls);target.append(row);
+ controls.append(status,button);const title=el('strong',undefined,'platform-title');if(name==='whatsapp'){title.innerHTML='<span class="full-name">WhatsApp Business</span><span class="short-name">WA Business</span>';}else{title.textContent='Telegram';}row.append(title,controls);target.append(row);
  const waConnected=state.connections.whatsapp?.state==='connected';
  const waWaiting=!waConnected&&!state.disconnected?.whatsapp;
  $('#wa-login').hidden=connPlatform!=='whatsapp'||!waWaiting;
@@ -100,7 +100,7 @@ function renderConnections(){
  else if(connPlatform==='whatsapp'&&waWaiting){$('#qr-box').hidden=false;showQr();}
  if(lastTgLogin)renderLogin(lastTgLogin);
  else $('.telegram-login').hidden=connPlatform!=='telegram'||state.connections.telegram?.state==='connected'||!!state.disconnected?.telegram;
- const providers=$('#providers');providers.replaceChildren();for(const [name,key]of [['在家 / Bark 长响铃','bark_home'],['外出 / Bark 普通通知','bark_away']]){const row=el('div',undefined,'status-row');row.append(el('strong',name),el('span',state.configured[key]?'凭据已配置 · 待实测':'尚未配置'));providers.append(row);}
+ const providers=$('#providers');providers.replaceChildren();for(const [name,key]of [['在家 / Bark 长响铃','bark_home'],['外出 / Bark 普通通知','bark_away']]){const configured=!!state.configured[key];const row=el('div',undefined,'status-row');row.append(el('strong',name),el('span',configured?'凭据已配置':'尚未配置',configured?'provider-configured':'provider-unconfigured'));providers.append(row);}
  if($('#bark-home-key')&&state.configured.bark_home)$('#bark-home-key').placeholder='已配置时无需重填，输入可更换 Key';
  if($('#bark-key')&&state.configured.bark_away)$('#bark-key').placeholder='已配置时无需重填，输入可更换 Key';
 }
