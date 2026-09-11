@@ -7,7 +7,7 @@ function groupDirty(platform){const d=groupDrafts[platform];return !!d&&(Object.
 let intervalDirty=false,quietDirty=false;
 let state, page='inbox', toastTimer, loading=false;
 const names={home:'在家长响铃',away:'外出通知',paused:'暂停提醒'};
-const statusNames={connected:'已连接',connecting:'连接中',reconnecting:'连接中',needs_scan:'等待扫码',logged_out:'已退出，请重新关联',not_configured:'未配置',needs_login:'等待登录',waiting:'等待连接',offline:'连接中断',disconnected:'连接中断',error:'连接异常',message_error:'消息处理异常'};
+const statusNames={connected:'已连接',connecting:'连接中',reconnecting:'连接中',needs_scan:'等待扫码',logged_out:'已退出',not_configured:'未配置',needs_login:'等待登录',waiting:'等待连接',offline:'连接中断',disconnected:'连接中断',error:'连接异常',message_error:'消息处理异常'};
 const date=t=>new Date(t*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 async function api(route,data){const r=await fetch(route,{method:data===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-Requested-With':'oncall'},...(data!==undefined?{body:JSON.stringify(data)}:{})});let result;try{result=await r.json();}catch{throw Error('服务器响应异常');}if(!r.ok){const error=Error(result.retry_after?`请等待 ${result.retry_after} 秒后重试`:typeof result.detail==='string'?result.detail:`请求失败 (${r.status})`);error.login=result.login;throw error;}return result;}
 function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,3500);}
