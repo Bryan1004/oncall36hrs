@@ -17,7 +17,7 @@ function empty(target,title,desc){target.replaceChildren();const box=el('div',un
 function alertCard(a,pending){const card=el('article',undefined,'alert-card'), icon=el('div',a.platform==='whatsapp'?'WA':a.platform==='telegram'?'TG':'◎','platform-icon'), content=el('div',undefined,'alert-content'),meta=el('div',undefined,'meta');meta.append(el('strong',a.title),el('span',a.reason==='reply'?'回复了你':'提到了你'),el('span',date(a.created)));content.append(meta,el('div',a.text,'message'),el('div',a.sender,'subtle'));card.append(icon,content);if(pending){const b=el('button','✓ 已收到','secondary');b.onclick=()=>action(async()=>{b.disabled=true;await api('/api/ack',{ids:[a.id]});toast('已确认，停止这条提醒');});card.append(b);}return card;}
 function render(){
  const pending=state.alerts.filter(a=>a.status==='pending');
- $('#delivery-badge').textContent=state.delivery_enabled?'真实提醒已开启':'演练模式 · 不会发送通知';$('#delivery-badge').className='badge'+(state.delivery_enabled?'':' warn');
+ renderBadge();
  document.querySelectorAll('[data-mode]').forEach(b=>{b.classList.toggle('selected',b.dataset.mode===state.mode);b.setAttribute('aria-pressed',String(b.dataset.mode===state.mode));});
  $('#mode-note').textContent=state.mode==='paused'?'已暂停发送，消息仍会进入收件箱。恢复后继续提醒待确认消息。':state.mode==='home'?`每 ${state.call_interval/60} 分钟合并发送一次 Bark 长响铃通知，直到确认或暂停。`:`每 ${state.push_interval/60} 分钟通知一次；手机锁屏时由手表接收，使用中由手机提醒。`;
  $('#pending-count').textContent=pending.length;$('#pending-chip').textContent=pending.length;for(const [platform,id] of [['whatsapp','ws'],['telegram','tg']])$('#'+id+'-group-count').textContent=state.groups.filter(g=>g.enabled&&g.platform===platform).length;
@@ -529,12 +529,29 @@ document.addEventListener('touchend',()=>{
 },{passive:true});
 document.addEventListener('touchcancel',resetPull,{passive:true});
 
+function renderBadge(){
+ const b=$('#delivery-badge');
+ if(!b||!state)return;
+ let text='在家',cls='badge-home';
+ if(state.quiet_active){
+  text='免打扰';cls='badge-quiet';
+ }else if(state.mode==='away'){
+  text='在外';cls='badge-away';
+ }else if(state.mode==='paused'){
+  text='暂停';cls='badge-paused';
+ }
+ if(!state.delivery_enabled)text+=' · 演练';
+ b.textContent=text;
+ b.className='badge '+cls;
+}
+
 function quietValues(){return {enabled:$('#quiet-enabled').checked,start:$('#quiet-start').value,end:$('#quiet-end').value,timezone:$('#quiet-timezone').value,days:[...document.querySelectorAll('[name="quiet-day"]:checked')].map(e=>Number(e.value))};}
 function renderQuietHours(){
  const q=state.quiet_hours||{enabled:false,start:'18:00',end:'09:00',days:[0,1,2,3,4,5,6],timezone:'Asia/Kuala_Lumpur'};
  if(!quietDirty){$('#quiet-enabled').checked=q.enabled;$('#quiet-start').value=q.start;$('#quiet-end').value=q.end;$('#quiet-timezone').value=q.timezone;document.querySelectorAll('[name="quiet-day"]').forEach(e=>e.checked=q.days.includes(Number(e.value)));}
  $('#quiet-status').textContent=quietDirty?'有未保存修改':state.quiet_active?'当前处于免打扰时段':q.enabled?'已启用，当前不在免打扰时段':'免打扰未启用';
- if(state.quiet_active){$('#delivery-badge').textContent='免打扰中';$('#delivery-badge').className='badge warn';$('#mode-note').textContent='免打扰中，自动提醒已暂停，消息仍会进入收件箱。时段结束后继续提醒未确认消息。';}
+ renderBadge();
+ if(state.quiet_active){$('#mode-note').textContent='免打扰中，自动提醒已暂停，消息仍会进入收件箱。时段结束后继续提醒未确认消息。';}
 }
 $('#quiet-form').oninput=()=>{quietDirty=true;renderQuietHours();};
 $('#quiet-form').onsubmit=e=>{e.preventDefault();action(async()=>{const q=quietValues();if(q.enabled&&(!q.days.length||q.start===q.end))throw Error('请选择星期，并设置不同的开始和结束时间');await api('/api/quiet-hours',q);quietDirty=JSON.stringify(q)!==JSON.stringify(quietValues());toast('免打扰设置已保存');});};

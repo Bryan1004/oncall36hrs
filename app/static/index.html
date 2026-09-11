@@ -77,13 +77,12 @@
 </div>
 </details>
 <details class="card setup-card">
-<summary class="setup-card-summary"><div class="setup-card-title"><span class="eyebrow">04 / QUIET HOURS</span><h2>免打扰时段</h2></div><span class="setup-card-arrow" aria-hidden="true"></span></summary>
+<summary class="setup-card-summary"><div class="setup-card-title"><span class="eyebrow">04 / QUIET HOURS</span><h2>免打扰时段<span class="info-tip"><button class="info-btn" type="button" aria-label="说明"><svg class="info-icon" viewBox="0 0 16 16" width="11" height="11" fill="currentColor" aria-hidden="true"><circle cx="8" cy="4" r="1.25"/><rect x="6.75" y="6.75" width="2.5" height="6.5" rx="0.4"/></svg></button><span class="info-bubble">结束时间早于开始时间表示跨夜，例如周五 18:00 至周六 09:00。期间停止所有自动响铃和通知，消息仍会收集；结束后继续提醒未确认消息。手动测试仍会发送。</span></span></h2></div><span class="setup-card-arrow" aria-hidden="true"></span></summary>
 <div class="setup-card-body"><form id="quiet-form">
 <label class="quiet-enabled"><input id="quiet-enabled" type="checkbox">启用定时免打扰</label>
 <div class="quiet-times"><label>开始时间<input id="quiet-start" type="time" required value="18:00"></label><label>结束时间<input id="quiet-end" type="time" required value="09:00"></label></div>
 <fieldset class="quiet-days"><legend>开始的星期</legend><label><input type="checkbox" name="quiet-day" value="0" checked>一</label><label><input type="checkbox" name="quiet-day" value="1" checked>二</label><label><input type="checkbox" name="quiet-day" value="2" checked>三</label><label><input type="checkbox" name="quiet-day" value="3" checked>四</label><label><input type="checkbox" name="quiet-day" value="4" checked>五</label><label><input type="checkbox" name="quiet-day" value="5" checked>六</label><label><input type="checkbox" name="quiet-day" value="6" checked>日</label></fieldset>
 <label>时区<select id="quiet-timezone"><option value="Asia/Kuala_Lumpur">马来西亚（UTC+8）</option><option value="Asia/Shanghai">中国（UTC+8）</option><option value="Asia/Singapore">新加坡（UTC+8）</option><option value="UTC">UTC</option></select></label>
-<p class="subtle">结束时间早于开始时间表示跨夜，例如周五 18:00 至周六 09:00。期间停止所有自动响铃和通知，消息仍会收集；结束后继续提醒未确认消息。手动测试仍会发送。</p>
 <p id="quiet-status" class="subtle" role="status"></p><button class="primary" type="submit">保存免打扰</button>
 </form></div></details>
 </div>
