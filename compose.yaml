@@ -27,14 +27,3 @@ services:
     depends_on:
       app:
         condition: service_healthy
-  nginx:
-    image: nginx:stable-alpine
-    restart: unless-stopped
-    ports:
-      - "443:443"
-    volumes:
-      - ./nginx/confirmation.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./data/nginx/certs:/etc/nginx/certs:ro
-    depends_on:
-      app:
-        condition: service_healthy

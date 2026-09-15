@@ -169,28 +169,24 @@ npm test
 
 令牌用服务器密钥签名，限定消息 ID 和过期时间，不包含消息正文。持有有效链接的人可以确认对应消息，因此不要转发该链接。修改 `BRIDGE_TOKEN` 会使旧链接失效，也需同步更新 WhatsApp bridge 配置。自动确认只能在页面实际打开并成功提交后完成；网络失败时提供重试，不显示成功，服务器继续提醒。已经到达设备的铃声无法撤回。
 
-### Docker Nginx 公网确认入口
+### 宿主机 Nginx 公网确认入口
 
-Compose 已包含 Nginx，监听宿主机 443；应用原有 8787 映射保持不变，继续通过服务器防火墙/Tailscale 控制访问。未放好证书前 Nginx 无法启动，但 app 和 WhatsApp 服务可独立运行。
+使用宿主机已有 Nginx 监听 443，Compose 只运行 app 和 WhatsApp。确认站点通过 `127.0.0.1:8787` 转发到应用；应用原有 8787 映射保持不变，继续通过服务器防火墙/Tailscale 控制访问。
 
-1. 将确认域名 DNS 指向服务器公网 IP，并在 `nginx/confirmation.conf` 中把 `ack.example.com` 换成自己的域名。
-2. 自行申请证书，在项目目录创建 `data/nginx/certs/`，放入完整证书链 `fullchain.pem` 和私钥 `privkey.pem`。应放实际文件；不要放指向挂载目录以外的符号链接。私钥限制为服务器管理员可读。此目录已被 Git 和部署包排除。
+1. 将独立确认域名 DNS 指向服务器公网 IP，在 `nginx/confirmation.conf` 中替换 `ack.example.com` 和两处证书路径。示例路径为 `/etc/letsencrypt/live/ack.example.com/fullchain.pem`、`privkey.pem`；也可填写自行申请的证书实际绝对路径。
+2. 把配置复制到宿主机 Nginx 已加载的 HTTP 配置目录。常见路径为 `/etc/nginx/conf.d/oncall-confirmation.conf`；如果宿主机只加载 `sites-enabled`，按现有站点启用方式安装。不要覆盖已有主配置，也不要重复定义同一域名。
 3. 在服务器 `.env` 设置 `CONFIRMATION_URL=https://你的确认域名`（不带 `/confirm`）；`PUBLIC_URL` 保留原来的 Tailscale 面板地址。
-4. 部署新应用和 Nginx：
+4. 在项目目录更新应用，安装并检查站点配置，检查通过后重载：
 
    ```sh
    docker compose up -d --build app whatsapp
-   docker compose run --rm --no-deps nginx nginx -t
-   docker compose up -d nginx
+   # 先编辑 nginx/confirmation.conf，填好域名和证书路径
+   sudo cp nginx/confirmation.conf /etc/nginx/conf.d/oncall-confirmation.conf
+   sudo nginx -t && sudo nginx -s reload
    ```
 
-5. 从公网检查 `https://你的确认域名/confirm` 能显示“没有确认链接”；`/`、`/api/state`、`/internal/wa/config` 应返回 404。通过真实新通知验证自动确认。旧通知不含签名，需要手动确认。
+5. 从公网检查 `https://你的确认域名/confirm` 能显示“没有确认链接”；该域名的 `/`、`/api/state`、`/internal/wa/config` 应返回 404。通过真实新通知验证自动确认。旧通知不含签名，需要手动确认。
 
-只发布 443，不发布 80；证书申请和续期由你管理。续期替换上述文件后执行：
+公网精确允许 `GET/POST /confirm` 和 `GET /confirm/client.js`，其他路径返回 404，其他方法返回 405。配置不声明 `default_server`，不改动宿主机其他站点的默认主机设置。证书申请和续期由你管理；更新证书后执行 `sudo nginx -t && sudo nginx -s reload`。
 
-```sh
-docker compose exec nginx nginx -t
-docker compose exec nginx nginx -s reload
-```
-
-公网精确允许 `GET/POST /confirm` 和 `GET /confirm/client.js`，其他路径返回 404，其他方法返回 405。默认虚拟主机拒绝未知域名的 TLS 握手。配置使用 Docker DNS 定期解析 app，因此重建 app 后无需为 IP 变化重启 Nginx。
+如果此前已经启动过本项目的 Nginx 容器，在启动宿主机 Nginx 前用 `docker compose rm -s -f nginx` 删除旧服务容器（需在更新 Compose 文件前执行），避免抢占 443。本项目新版 Compose 不再提供该服务。
