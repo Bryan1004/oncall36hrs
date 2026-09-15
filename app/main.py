@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+import html
 import json
 import os
 import secrets
@@ -15,12 +16,13 @@ import qrcode.image.svg
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field, SecretStr
 
 from app.ai_review import install_ai
 from app.learning import install_learning
 from app.config import Config
+from app.confirmation import verify
 from app.group_sync import WhatsAppGroupSync
 from app.store import Store
 from app.notify import Dispatcher, Notifier
@@ -69,6 +71,10 @@ class LoginCode(BaseModel):
 
 class LoginPassword(BaseModel):
     password: str = Field(min_length=1, max_length=256)
+
+
+class SignedAck(BaseModel):
+    token: str = Field(min_length=1, max_length=100000)
 
 
 class Ack(BaseModel):
@@ -212,6 +218,28 @@ def create_app(config=None, workers=True):
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         return response
+
+    @app.get("/confirm", response_class=HTMLResponse)
+    async def confirmation_page():
+        return HTMLResponse('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width,initial-scale=1">'
+            '<title>确认提醒</title><body><h1 id="status">正在确认…</h1>'
+            '<p id="detail">连接服务器后，将自动标记本轮消息为已收到。</p>'
+            '<button id="retry" hidden>重试确认</button><p><a href="' + html.escape(config.public_url, quote=True) +
+            '">打开管理面板</a></p><script src="/confirm/client.js" defer></script></body></html>')
+
+    @app.get("/confirm/client.js")
+    async def confirmation_script():
+        return FileResponse(Path(__file__).parent / "static/confirmation.js")
+
+    @app.post("/confirm")
+    async def confirm_notification(body: SignedAck):
+        try:
+            ids = verify(config, body.token)
+        except ValueError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from None
+        await dispatcher.acknowledge(ids)
+        return {"status": "acknowledged"}
 
     @app.get("/healthz")
     async def health():

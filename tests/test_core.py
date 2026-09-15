@@ -143,7 +143,7 @@ async def test_push_no_provider_repeat_and_no_message_leak():
         return httpx.Response(200, json={"code": 200})
     cfg = Config(delivery_enabled=True, bark_device_key="test")
     async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
-        assert await Notifier(cfg, client).send("away", [{"text": "private content"}]) == "accepted"
+        assert await Notifier(cfg, client).send("away", [{"id": 1, "text": "private content"}]) == "accepted"
     body = requests[0].content.decode()
     assert '"level":"active"' in body and "private" not in body and '"call"' not in body and '"retry"' not in body
 
@@ -206,7 +206,7 @@ async def test_bark_home_payload():
         assert body['device_key']=='test' and 'private' not in request.content.decode()
         return httpx.Response(200,json={'code':200})
     async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
-        assert await Notifier(Config(delivery_enabled=True,bark_home_device_key='test'),client).send('home',[{'text':'private'}])=='accepted'
+        assert await Notifier(Config(delivery_enabled=True,bark_home_device_key='test'),client).send('home',[{'id':1,'text':'private'}])=='accepted'
 
 @pytest.mark.asyncio
 async def test_connection_alerts_never_trigger_repeat_but_work_alerts_do(store):

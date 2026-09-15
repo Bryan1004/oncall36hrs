@@ -10,6 +10,7 @@ class Config:
     bridge_token: str = os.getenv("BRIDGE_TOKEN", "")
     delivery_enabled: bool = os.getenv("DELIVERY_ENABLED", "false").lower() == "true"
     public_url: str = os.getenv("PUBLIC_URL", "http://localhost:8787").rstrip("/")
+    confirmation_url: str = os.getenv("CONFIRMATION_URL", "").rstrip("/")
     bark_server: str = os.getenv("BARK_SERVER", "https://api.day.app").rstrip("/")
     bark_home_device_key: str = os.getenv("BARK_HOME_DEVICE_KEY", "")
     bark_away_device_key: str = os.getenv("BARK_AWAY_DEVICE_KEY", "")

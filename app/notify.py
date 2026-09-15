@@ -2,6 +2,7 @@ import asyncio
 import time
 import httpx
 from app.quiet_hours import quiet_active
+from app.confirmation import sign
 
 
 class DeliveryError(Exception):
@@ -36,7 +37,7 @@ class Notifier:
         if len(groups) > 5:
             lines.append(f"另有 {len(groups) - 5} 个群组，打开面板查看。")
         else:
-            lines.append("点击打开面板查看并确认。")
+            lines.append("点击通知自动标记本轮消息为已收到。")
         return "\n".join(lines)
 
     async def send(self, mode, alerts, test=False):
@@ -52,6 +53,9 @@ class Notifier:
             "url": self.config.public_url, "group": "oncall36", "isArchive": "0",
             "level": "critical" if mode == "home" else "active",
             "sound": "minuet"}
+        if not test and alerts:
+            base = self.config.confirmation_url or self.config.public_url
+            payload["url"] = base + "/confirm#" + sign(self.config, [a["id"] for a in alerts])
         if mode == "home":
             payload.update({"call": "1", "volume": "5"})
         # Share source platform/group and counts, never message text; dispatcher owns retries.

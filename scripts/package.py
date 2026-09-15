@@ -9,7 +9,7 @@ out.mkdir(exist_ok=True)
 roots = ["README.md", "Dockerfile", "compose.yaml", ".env.example", ".gitignore", ".dockerignore",
          "requirements.txt", "requirements-dev.txt"]
 files = [root / name for name in roots]
-patterns = {"app": ["*.py", "*.js", "*.css", "*.html", "*.mp3"], "scripts": ["*.py"],
+patterns = {"nginx": ["*.conf"], "app": ["*.py", "*.js", "*.css", "*.html", "*.mp3"], "scripts": ["*.py"],
             "tests": ["*.py"], "docs": ["*.md"], "whatsapp": ["*.mjs", "package*.json", "Dockerfile", ".dockerignore"]}
 for directory, globs in patterns.items():
     for pattern in globs:
