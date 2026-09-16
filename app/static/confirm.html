@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>警报已确认 · On Call 36 小时</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#131815" media="(prefers-color-scheme: dark)">
+  <style>
+    :root {
+      --bg: #f4f5f2;
+      --card-bg: #ffffff;
+      --ink: #22332a;
+      --muted: #6f7d75;
+      --line: #e2e8e2;
+      --green: #276d51;
+      --green-light: #edf4ee;
+      --green-ring: rgba(39, 109, 81, 0.15);
+      --red: #c04336;
+      --red-light: #fdf1ef;
+      --red-ring: rgba(192, 67, 54, 0.15);
+      --amber: #b57d33;
+      --amber-light: #fef8ee;
+      --shadow: 0 10px 30px -4px rgba(22, 38, 30, 0.06), 0 2px 8px -2px rgba(22, 38, 30, 0.04);
+      --radius: 18px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #111513;
+        --card-bg: #19201c;
+        --ink: #e6eee8;
+        --muted: #8b9991;
+        --line: #26332c;
+        --green: #48a57e;
+        --green-light: #162820;
+        --green-ring: rgba(72, 165, 126, 0.2);
+        --red: #e06253;
+        --red-light: #2c1816;
+        --red-ring: rgba(224, 98, 83, 0.2);
+        --amber: #d99a47;
+        --amber-light: #2b2114;
+        --shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.4);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+      background-color: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      line-height: 1.5;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 480px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* 顶部品牌 Logo */
+    .brand-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      margin-bottom: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--green);
+      letter-spacing: 0.3px;
+      opacity: 0.9;
+    }
+
+    .brand-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    /* 主卡片：桌面端更舒展大气，手机端保持紧凑灵动 */
+    .card {
+      width: 100%;
+      max-width: 460px;
+      height: 330px;
+      min-height: 330px;
+      max-height: 330px;
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 26px 32px 18px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, max-width 0.2s ease;
+    }
+
+    @media (max-width: 520px) {
+      .container {
+        max-width: 400px;
+      }
+      .card {
+        max-width: 380px;
+        padding: 24px 20px 16px;
+      }
+    }
+
+    .card-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      width: 100%;
+      flex: 1;
+      justify-content: flex-start;
+    }
+
+    /* 状态指示器：全新设计的微拟物 Squircle 雷达徽章 */
+    .status-icon-wrap {
+      width: 60px;
+      height: 60px;
+      margin: 2px auto 14px;
+      border-radius: 17px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      position: relative;
+      transition: all 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* 正在确认：雷达脉冲与信号波 */
+    .state-loading .status-icon-wrap {
+      background: linear-gradient(135deg, rgba(39, 109, 81, 0.18), rgba(39, 109, 81, 0.06));
+      border: 1px solid rgba(39, 109, 81, 0.3);
+      box-shadow: 0 8px 20px -4px rgba(39, 109, 81, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+      color: var(--green);
+    }
+
+    /* 确认成功：翡翠绿微光微动效 */
+    .state-success .status-icon-wrap {
+      background: linear-gradient(135deg, rgba(39, 109, 81, 0.22), rgba(39, 109, 81, 0.08));
+      border: 1px solid rgba(39, 109, 81, 0.38);
+      box-shadow: 0 10px 24px -4px rgba(39, 109, 81, 0.28), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+      color: var(--green);
+      animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    /* 失败/重试：柔和绯红告警 */
+    .state-error .status-icon-wrap {
+      background: linear-gradient(135deg, rgba(192, 67, 54, 0.2), rgba(192, 67, 54, 0.06));
+      border: 1px solid rgba(192, 67, 54, 0.35);
+      box-shadow: 0 8px 20px -4px rgba(192, 67, 54, 0.25), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+      color: var(--red);
+      animation: shake 0.4s ease;
+    }
+
+    /* 无凭据：琥珀提醒 */
+    .state-warn .status-icon-wrap {
+      background: linear-gradient(135deg, rgba(181, 125, 51, 0.2), rgba(181, 125, 51, 0.06));
+      border: 1px solid rgba(181, 125, 51, 0.35);
+      box-shadow: 0 8px 20px -4px rgba(181, 125, 51, 0.2), inset 0 1px 1px rgba(255, 255, 255, 0.2);
+      color: var(--amber);
+    }
+
+    @keyframes popIn {
+      0% { transform: scale(0.65); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-4px); }
+      40%, 80% { transform: translateX(4px); }
+    }
+
+    /* 全新双环雷达脉冲加载动效 */
+    .radar-beacon {
+      position: relative;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .radar-pulse-ring {
+      position: absolute;
+      inset: -6px;
+      border-radius: 14px;
+      border: 1.5px solid var(--green);
+      opacity: 0;
+      animation: radarPulse 1.8s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+    }
+
+    .radar-pulse-ring.delay {
+      animation-delay: 0.9s;
+    }
+
+    .radar-center-spinner {
+      width: 24px;
+      height: 24px;
+      border: 2.5px solid rgba(39, 109, 81, 0.2);
+      border-top-color: var(--green);
+      border-right-color: var(--green);
+      border-radius: 50%;
+      animation: spin 0.85s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .radar-center-spinner::after {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--green);
+      border-radius: 50%;
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    @keyframes radarPulse {
+      0% { transform: scale(0.75); opacity: 0.8; }
+      100% { transform: scale(1.45); opacity: 0; }
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .icon-svg {
+      width: 28px;
+      height: 28px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.08));
+    }
+
+    /* 文本状态：紧凑高度与字号 */
+    h1#status {
+      font-size: 19px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+      margin-bottom: 6px;
+      color: var(--ink);
+      line-height: 1.25;
+      min-height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    p#detail {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+      margin-bottom: 8px;
+      word-break: break-word;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* 确认时间戳气泡：紧凑且平滑占位 */
+    .meta-time {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font-size: 11.5px;
+      color: var(--muted);
+      background: var(--bg);
+      border-radius: 16px;
+      padding: 3px 10px;
+      margin: 0 auto;
+      width: fit-content;
+      min-height: 22px;
+      box-sizing: border-box;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.2s ease, visibility 0.2s ease;
+    }
+
+    .meta-time.show {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    /* 底部操作区容器 */
+    .card-footer {
+      width: 100%;
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    /* 操作按钮组：单行并排自适应，固定单行高度无任何高度跳变 */
+    .actions {
+      display: flex;
+      flex-direction: row;
+      gap: 8px;
+      width: 100%;
+      min-height: 40px;
+      height: 40px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      flex: 1;
+      height: 40px;
+      border-radius: 9px;
+      font-size: 13.5px;
+      font-weight: 600;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+      border: 1px solid transparent;
+      box-sizing: border-box;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: var(--green);
+      color: #ffffff;
+      border-color: var(--green);
+      box-shadow: 0 2px 8px rgba(39, 109, 81, 0.18);
+    }
+
+    .btn-primary:active {
+      opacity: 0.9;
+      transform: scale(0.99);
+    }
+
+    .btn-secondary {
+      background: var(--green-light);
+      color: var(--green);
+      border-color: rgba(39, 109, 81, 0.25);
+    }
+
+    .btn-secondary:active {
+      background: rgba(39, 109, 81, 0.15);
+    }
+
+    /* 底部收起或返回提示 */
+    .card-footer-tip {
+      margin-top: 10px;
+      font-size: 11px;
+      color: var(--muted);
+      opacity: 0.85;
+      line-height: 1.2;
+    }
+
+    /* 模拟状态切换器（仅供预览和调试查看设计） */
+    .preview-bar {
+      margin-top: 28px;
+      padding: 10px 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 30px;
+      display: flex;
+      gap: 6px;
+      font-size: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .preview-bar button {
+      background: none;
+      border: 1px solid transparent;
+      padding: 4px 10px;
+      border-radius: 16px;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+
+    .preview-bar button.active {
+      background: var(--green-light);
+      color: var(--green);
+      border-color: var(--line);
+      font-weight: 600;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+  </style>
+</head>
+<body class="state-loading">
+  <div class="container">
+    <div class="brand-tag">
+      <span class="brand-icon">◉</span>
+      <span>On Call 36 小时 · 警报回执</span>
+    </div>
+
+    <div class="card">
+      <div class="card-body">
+        <div class="status-icon-wrap" id="icon-wrap">
+          <div class="radar-beacon" id="icon-loading">
+            <div class="radar-pulse-ring"></div>
+            <div class="radar-pulse-ring delay"></div>
+            <div class="radar-center-spinner"></div>
+          </div>
+          <svg class="icon-svg" id="icon-success" viewBox="0 0 24 24" hidden>
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
+          <svg class="icon-svg" id="icon-error" viewBox="0 0 24 24" hidden>
+            <circle cx="12" cy="12" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <svg class="icon-svg" id="icon-warn" viewBox="0 0 24 24" hidden>
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"></path>
+          </svg>
+        </div>
+
+        <h1 id="status">正在确认收到…</h1>
+        <p id="detail">连接服务器后，将自动标记本轮消息为已收到并停止重复提醒。</p>
+        
+        <div id="confirmed-time" class="meta-time">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          <span id="time-text"></span>
+        </div>
+      </div>
+
+      <div class="card-footer">
+        <div class="actions">
+          <button id="retry" class="btn btn-primary" hidden>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="1 4 1 10 7 10"></polyline>
+              <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path>
+            </svg>
+            重试确认
+          </button>
+          <a id="dashboard-link" class="btn btn-primary" href="/">
+            打开管理面板
+            <span style="font-family: system-ui; font-size: 13px;">→</span>
+          </a>
+        </div>
+
+        <p class="card-footer-tip">收到回执后，您可以安全关闭此页面</p>
+      </div>
+    </div>
+
+    <!-- 预览与快速效果演示栏：仅在本地 file:// 预览模式下激活，正式线上环境自动隐藏 -->
+    <div class="preview-bar" id="preview-bar" hidden>
+      <button type="button" onclick="setViewState('loading')">正在确认</button>
+      <button type="button" class="active" onclick="setViewState('success')">确认成功</button>
+      <button type="button" onclick="setViewState('error')">失败/重试</button>
+      <button type="button" onclick="setViewState('notoken')">无链接</button>
+    </div>
+  </div>
+
+  <script>
+    // 视觉状态切换辅助逻辑
+    function setViewState(type, message, subtext) {
+      const body = document.body;
+      const iconLoading = document.getElementById('icon-loading');
+      const iconSuccess = document.getElementById('icon-success');
+      const iconError = document.getElementById('icon-error');
+      const iconWarn = document.getElementById('icon-warn');
+      const statusEl = document.getElementById('status');
+      const detailEl = document.getElementById('detail');
+      const retryBtn = document.getElementById('retry');
+      const timeBubble = document.getElementById('confirmed-time');
+      const timeText = document.getElementById('time-text');
+      const dashBtn = document.getElementById('dashboard-link');
+
+      // 重置图标
+      [iconLoading, iconSuccess, iconError, iconWarn].forEach(el => el.hidden = true);
+      body.className = 'state-' + (type === 'notoken' ? 'warn' : type);
+      timeBubble.classList.remove('show');
+
+      // 更新按钮指示
+      const previewBtns = document.querySelectorAll('#preview-bar button');
+      previewBtns.forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('onclick')?.includes(type));
+      });
+
+      if (type === 'loading') {
+        iconLoading.hidden = false;
+        statusEl.textContent = message || '正在确认…';
+        detailEl.textContent = subtext || '连接服务器后，将自动标记本轮消息为已收到。';
+        retryBtn.hidden = true;
+        dashBtn.className = 'btn btn-primary';
+      } else if (type === 'success') {
+        iconSuccess.hidden = false;
+        statusEl.textContent = message || '已确认收到';
+        detailEl.textContent = subtext || '本轮警报已确认，已停止后续重复提醒；面板数据已同步更新。';
+        retryBtn.hidden = true;
+        dashBtn.className = 'btn btn-primary';
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('zh-CN', { hour12: false });
+        timeText.textContent = '已于 ' + timeStr + ' 确认';
+        timeBubble.classList.add('show');
+      } else if (type === 'error') {
+        iconError.hidden = false;
+        statusEl.textContent = message || '未能确认';
+        detailEl.textContent = subtext || '无法连接到推送服务器，请检查网络或确认 Tailscale 连接。';
+        retryBtn.hidden = false;
+        dashBtn.className = 'btn btn-secondary';
+      } else if (type === 'notoken') {
+        iconWarn.hidden = false;
+        statusEl.textContent = message || '没有确认凭证';
+        detailEl.textContent = subtext || '请从最新的 Bark 警报通知打开，或直接进入面板查看和确认。';
+        retryBtn.hidden = true;
+        dashBtn.className = 'btn btn-primary';
+      }
+    }
+
+    // 仅在本地直接双击打开 HTML (file://) 或携带 ?preview=1 时展示调试切换栏
+    if (location.protocol === 'file:' || new URLSearchParams(location.search).has('preview')) {
+      const pBar = document.getElementById('preview-bar');
+      if (pBar) pBar.hidden = false;
+    }
+
+    // 默认展示成功效果供直接预览
+    setViewState('success');
+  </script>
+  <script src="/confirm/client.js" defer></script>
+</body>
+</html>

@@ -221,12 +221,10 @@ def create_app(config=None, workers=True):
 
     @app.get("/confirm", response_class=HTMLResponse)
     async def confirmation_page():
-        return HTMLResponse('<!doctype html><html lang="zh-CN"><meta charset="utf-8">'
-            '<meta name="viewport" content="width=device-width,initial-scale=1">'
-            '<title>确认提醒</title><body><h1 id="status">正在确认…</h1>'
-            '<p id="detail">连接服务器后，将自动标记本轮消息为已收到。</p>'
-            '<button id="retry" hidden>重试确认</button><p><a href="' + html.escape(config.public_url, quote=True) +
-            '">打开管理面板</a></p><script src="/confirm/client.js" defer></script></body></html>')
+        template = (Path(__file__).parent / "static/confirm.html").read_text(encoding="utf-8")
+        escaped_url = html.escape(config.public_url, quote=True)
+        rendered = template.replace('href="/"', f'href="{escaped_url}"')
+        return HTMLResponse(rendered)
 
     @app.get("/confirm/client.js")
     async def confirmation_script():

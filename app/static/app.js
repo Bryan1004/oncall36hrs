@@ -19,7 +19,7 @@ function render(){
  const pending=state.alerts.filter(a=>a.status==='pending');
  renderBadge();
  document.querySelectorAll('[data-mode]').forEach(b=>{b.classList.toggle('selected',b.dataset.mode===state.mode);b.setAttribute('aria-pressed',String(b.dataset.mode===state.mode));});
- $('#mode-note').textContent=state.mode==='paused'?'已暂停发送，消息仍会进入收件箱。恢复后继续提醒待确认消息。':state.mode==='home'?`每 ${state.call_interval/60} 分钟合并发送一次 Bark 长响铃通知，直到确认或暂停。`:`每 ${state.push_interval/60} 分钟通知一次；手机锁屏时由手表接收，使用中由手机提醒。`;
+ $('#mode-note').textContent=state.mode==='paused'?'已暂停发送（正常收信），恢复后继续提醒。':state.mode==='home'?`每 ${state.call_interval/60} 分钟 Bark 长响铃，直到确认或暂停。`:`每 ${state.push_interval/60} 分钟通知一次，手表与手机重复提醒。`;
  $('#pending-count').textContent=pending.length;$('#pending-chip').textContent=pending.length;for(const [platform,id] of [['whatsapp','ws'],['telegram','tg']])$('#'+id+'-group-count').textContent=state.groups.filter(g=>g.enabled&&g.platform===platform).length;
  const online=Object.values(state.connections).filter(c=>c.state==='connected').length;$('#connection-count').textContent=online+' / 2';$('#connection-note').textContent=online===2?'两个平台均在线':'请查看连接与设置';
  $('#demo').hidden=state.delivery_enabled;$('#ack-all').disabled=!pending.length;
@@ -558,7 +558,7 @@ function renderQuietHours(){
  if(!quietDirty){$('#quiet-enabled').checked=q.enabled;$('#quiet-start').value=q.start;$('#quiet-end').value=q.end;$('#quiet-timezone').value=q.timezone;document.querySelectorAll('[name="quiet-day"]').forEach(e=>e.checked=q.days.includes(Number(e.value)));}
  $('#quiet-status').textContent=quietDirty?'有未保存修改':state.quiet_active?'当前处于免打扰时段':q.enabled?'已启用，当前不在免打扰时段':'免打扰未启用';
  renderBadge();
- if(state.quiet_active){$('#mode-note').textContent='免打扰中，自动提醒已暂停，消息仍会进入收件箱。时段结束后继续提醒未确认消息。';}
+  if(state.quiet_active){$('#mode-note').textContent='免打扰中（正常收信），时段结束后继续提醒。';}
 }
 $('#quiet-form').oninput=()=>{quietDirty=true;renderQuietHours();};
 $('#quiet-form').onsubmit=e=>{e.preventDefault();action(async()=>{const q=quietValues();if(q.enabled&&(!q.days.length||q.start===q.end))throw Error('请选择星期，并设置不同的开始和结束时间');await api('/api/quiet-hours',q);quietDirty=JSON.stringify(q)!==JSON.stringify(quietValues());toast('免打扰设置已保存');});};
