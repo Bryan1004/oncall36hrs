@@ -1,4 +1,4 @@
-/* Keep application navigation authoritative; this module only enhances its UI. */
+/* Navigation glass enhancement; preserves desktop sidebar structure while applying fluid glass effects. */
 (() => {
   'use strict';
   const nav = document.querySelector('aside nav');
@@ -21,18 +21,20 @@
   let travel = null;
   let bubble = null;
   let suppressClick = false;
-  const canAnimate = () => phone.matches && !reduced.matches && typeof lens.animate === 'function';
+  const canAnimate = () => !reduced.matches && typeof lens.animate === 'function';
 
   function move(index, animate = true) {
-    if (index < 0 || !phone.matches) return;
+    if (index < 0 || !buttons[index]) return;
+    const btn = buttons[index];
     const from = getComputedStyle(position).transform;
     travel?.cancel();
-    position.style.width = `${buttons[index].offsetWidth}px`;
-    const to = `translateX(${buttons[index].offsetLeft}px)`;
+    position.style.width = `${btn.offsetWidth}px`;
+    position.style.height = `${btn.offsetHeight}px`;
+    const to = `translate3d(${btn.offsetLeft}px,${btn.offsetTop}px,0)`;
     position.style.transform = to;
-    if (animate && canAnimate()) {
+    if (animate && canAnimate() && from && from !== 'none' && from !== to) {
       travel = position.animate([{ transform: from }, { transform: to }], {
-        duration: 380, easing: 'cubic-bezier(.22,1,.36,1)',
+        duration: 350, easing: 'cubic-bezier(.22,1,.36,1)',
       });
     }
   }
@@ -40,7 +42,7 @@
   function swell(hold = false, pulse = false) {
     const from = getComputedStyle(lens).transform;
     bubble?.cancel();
-    const peak = 'scale(1.24,1.28)';
+    const peak = phone.matches ? 'scale(1.24,1.28)' : 'scale(1.02,1.05)';
     lens.style.transform = hold && canAnimate() ? peak : 'scale(1)';
     if (!canAnimate()) return;
     bubble = lens.animate(pulse ? [
@@ -49,7 +51,7 @@
       { transform: peak, offset: .36, easing: 'cubic-bezier(.22,1,.36,1)' },
       { transform: 'scale(1)', offset: 1 },
     ] : [{ transform: from }, { transform: hold ? peak : 'scale(1)' }], {
-      duration: pulse ? 560 : 180, easing: pulse ? 'linear' : 'cubic-bezier(.22,1,.36,1)',
+      duration: pulse ? 500 : 180, easing: pulse ? 'linear' : 'cubic-bezier(.22,1,.36,1)',
     });
   }
 
@@ -122,5 +124,9 @@
   reduced.addEventListener('change', reset);
   const resize = new ResizeObserver(() => move(gesture?.index ?? selected, false));
   resize.observe(nav);
+  window.addEventListener('resize', () => move(selected, false), { passive: true });
+  if (document.fonts?.ready) {
+    document.fonts.ready.then(() => move(selected, false));
+  }
   sync();
 })();
