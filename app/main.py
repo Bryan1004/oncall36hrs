@@ -226,6 +226,10 @@ def create_app(config=None, workers=True):
         rendered = template.replace('href="/"', f'href="{escaped_url}"')
         return HTMLResponse(rendered)
 
+    @app.get("/confirm/style.css")
+    async def confirmation_style():
+        return FileResponse(Path(__file__).parent / "static/confirm.css")
+
     @app.get("/confirm/client.js")
     async def confirmation_script():
         return FileResponse(Path(__file__).parent / "static/confirmation.js")
