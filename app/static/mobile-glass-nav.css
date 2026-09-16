@@ -22,29 +22,24 @@
 @media (min-width: 761px) {
   aside nav.phone-glass-nav {
     position: relative;
-    margin-top: 30px;
-    padding: 6px;
+    margin-top: 34px;
+    padding: 0;
     display: flex;
     flex-direction: column;
     gap: 4px;
-    border: 1px solid rgb(255 255 255 / 80%);
-    border-radius: 14px;
-    background: linear-gradient(165deg, rgb(255 255 255 / 75%), rgb(245 249 246 / 40%) 48%, rgb(255 255 255 / 62%));
-    -webkit-backdrop-filter: blur(20px) saturate(165%);
-    backdrop-filter: blur(20px) saturate(165%);
-    box-shadow: 0 4px 20px -4px rgb(20 46 31 / 7%), 0 1px 3px rgb(20 46 31 / 3%), inset 0 1px 0 rgb(255 255 255 / 95%), inset 0 -1px 1px rgb(255 255 255 / 45%);
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
     isolation: isolate;
     overflow: visible;
     width: 100%;
     box-sizing: border-box;
   }
   aside nav.phone-glass-nav::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background: linear-gradient(115deg, rgb(255 255 255 / 35%), transparent 28% 72%, rgb(255 255 255 / 15%));
-    pointer-events: none;
+    display: none;
   }
   aside nav.phone-glass-nav > button {
     position: relative;
@@ -72,7 +67,7 @@
   }
   aside nav.phone-glass-nav > button:hover:not(.active) {
     color: var(--ink);
-    background: rgb(255 255 255 / 50%);
+    background: rgba(39, 109, 81, 0.05);
   }
   aside nav.phone-glass-nav > button:active {
     transform: scale(0.985);
