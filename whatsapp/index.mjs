@@ -2,9 +2,10 @@ import http from 'node:http';
 import {mkdir, readdir, readFile, writeFile, rename, unlink, rm} from 'node:fs/promises';
 import {createHash, randomUUID, timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
-import makeWASocket, {useMultiFileAuthState, DisconnectReason, normalizeMessageContent, jidNormalizedUser, fetchLatestBaileysVersion} from '@whiskeysockets/baileys';
+import makeWASocket, {useMultiFileAuthState, normalizeMessageContent, jidNormalizedUser, fetchLatestBaileysVersion} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import {normalize} from './normalize.mjs';
+import {closePolicy, restartAfterAuth} from './connection-policy.mjs';
 
 process.umask(0o077);
 const dir = process.env.DATA_DIR || './data';
@@ -13,7 +14,7 @@ if (token.length < 24) throw new Error('BRIDGE_TOKEN must have at least 24 chara
 const appUrl = process.env.APP_URL || 'http://localhost:8000';
 await mkdir(path.join(dir, 'spool'), {recursive: true});
 let socket, qr = null, lastQr = null, state = 'connecting', selected = new Set(), selfIds = new Set();
-let reconnectTimer, controlBusy = false, authWrites = Promise.resolve(), waVersion = null;
+let reconnectTimer, controlBusy = false, authWrites = Promise.resolve(), waVersion = null, reconnectAttempts = 0, authSaveFailed = false;
 const pauseFile = path.join(dir, 'paused');
 let paused = false;
 try { await readFile(pauseFile); paused = true; state = 'disconnected'; } catch {}
@@ -59,31 +60,38 @@ async function start() {
   if (waVersion) socketOpts.version = waVersion;
   socket = makeWASocket(socketOpts);
   const activeSocket = socket;
+  let paired = false, hadQr = false, closed = false;
   socket.ev.on('creds.update', () => {
-    if(!paused && socket === activeSocket) authWrites = authWrites.then(auth.saveCreds).catch(() => {state='error';});
+    if(!paused && socket === activeSocket) authWrites = authWrites.then(auth.saveCreds).catch(() => {authSaveFailed=true;state='error';});
   });
   socket.ev.on('connection.update', update => {
     if(paused || socket !== activeSocket) return;
-    if (update.qr) { qr = update.qr; lastQr = update.qr; state = 'needs_scan'; }
+    if (update.qr) { hadQr = true; qr = update.qr; lastQr = update.qr; state = 'needs_scan'; }
+    if (update.isNewLogin) { paired = true; qr = null; lastQr = null; state = 'connecting'; }
     if (update.connection === 'open') {
-      state = 'connected'; qr = null; lastQr = null;
+      state = 'connected'; qr = null; lastQr = null; reconnectAttempts = 0;
       selfIds = new Set([socket.user?.id, socket.user?.lid].filter(Boolean).map(jidNormalizedUser));
     }
-    if (update.connection === 'close') {
+    if (update.connection === 'close' && !closed) {
+      closed = true;
       qr = null;
-      const statusCode = update.lastDisconnect?.error?.output?.statusCode;
-      const loggedOut = statusCode === DisconnectReason.loggedOut;
-      const timedOut = statusCode === DisconnectReason.timedOut || statusCode === 408;
       clearTimeout(reconnectTimer);
-      if (loggedOut) {
-        state = 'logged_out';
-      } else if (timedOut || !activeSocket?.user) {
-        // Pairing timed out or closed before login: STOP reconnecting to avoid anti-bot risk control bans.
-        state = 'qr_expired';
-      } else {
-        // Authenticated user session was dropped: reconnect automatically.
-        state = 'reconnecting';
-        reconnectTimer = setTimeout(() => start().catch(() => { state = 'error'; }), 5000);
+      const error = update.lastDisconnect?.error;
+      const decision = closePolicy({error,
+        authenticated: paired || !!auth.state.creds.me || !!auth.state.creds.registered,
+        hadQr, attempts: reconnectAttempts});
+      state = authSaveFailed ? 'error' : decision.state;
+      if (state !== 'qr_expired') lastQr = null;
+      // Record only a status code and decision; never credentials, QR or messages.
+      console.info(JSON.stringify({event: 'wa_connection_closed',
+        code: error?.output?.statusCode ?? null, state, attempts: reconnectAttempts}));
+      if (!authSaveFailed && decision.delay !== undefined) {
+        reconnectAttempts += 1;
+        reconnectTimer = setTimeout(() => {
+          restartAfterAuth(authWrites,
+            () => !paused && socket === activeSocket && !authSaveFailed,
+            start).catch(() => { state = 'error'; });
+        }, decision.delay);
       }
     }
   });
@@ -169,7 +177,7 @@ http.createServer(async (req, res) => {
           await rm(path.join(dir,'spool'),{recursive:true,force:true});
           await mkdir(path.join(dir,'spool'),{recursive:true});
           try{await unlink(pauseFile);}catch{}
-          paused=false;state='connecting';await start();
+          paused=false;authSaveFailed=false;reconnectAttempts=0;state='connecting';await start();
         }
         res.end(JSON.stringify({ok:true,remote_logout:remoteLogout}));
       } finally {controlBusy=false;}

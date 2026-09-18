@@ -76,7 +76,7 @@ function renderConnections(){
  const name=connPlatform;
  const c=state.connections[name]||{state:'waiting'},online=c.state==='connected',row=el('div',undefined,'status-row'),status=el('span',undefined,'connection-status'),dot=el('i',undefined,'status-dot '+connectionTone(c.state));
  dot.setAttribute('aria-hidden','true');status.append(dot,document.createTextNode(statusNames[c.state]||c.state));
- const isDisconnected=!!state.disconnected?.[name]||['logged_out','disconnected','not_configured','qr_expired'].includes(c.state);
+ const isDisconnected=!!state.disconnected?.[name]||['logged_out','disconnected','not_configured','qr_expired','error'].includes(c.state);
  const btnText=isDisconnected?'重新连接':'断开连接';
  const controls=el('div',undefined,'connection-controls'),button=el('button',btnText,'secondary');
  button.type='button';button.setAttribute('aria-label',btnText+' '+(name==='whatsapp'?'WhatsApp':'Telegram'));
@@ -103,7 +103,8 @@ function renderConnections(){
  const waDisconnected=!!state.disconnected?.whatsapp||waState==='disconnected';
  const waLoggedOut=waState==='logged_out';
  const waExpired=waState==='qr_expired';
- const waWaiting=!waConnected&&!waDisconnected&&!waLoggedOut&&!waExpired;
+ const waError=waState==='error';
+ const waWaiting=!waConnected&&!waDisconnected&&!waLoggedOut&&!waExpired&&!waError;
  $('#wa-login').hidden=connPlatform!=='whatsapp'||waConnected||waDisconnected;
  if(waDisconnected||waConnected){
   $('#wa-status').textContent='';$('#wa-status').hidden=true;
@@ -111,6 +112,10 @@ function renderConnections(){
  }else if(waLoggedOut){
   $('#qr-box').hidden=true;$('#qr-box').classList.remove('expired');$('#qr-overlay').hidden=true;$('#qr-image').hidden=true;$('#qr-image').removeAttribute('src');
   $('#wa-status').textContent='登录已失效，请点击「重新连接」重新扫码。';
+  $('#wa-status').hidden=false;
+ }else if(waError){
+  $('#qr-box').hidden=true;$('#qr-overlay').hidden=true;$('#qr-image').hidden=true;$('#qr-image').removeAttribute('src');
+  $('#wa-status').textContent='连接失败，已停止自动重试。请检查网络和手机端提示后再重新连接。';
   $('#wa-status').hidden=false;
  }else if(waExpired){
   $('#qr-box').hidden=false;$('#qr-box').classList.add('expired');
@@ -210,6 +215,10 @@ async function showQr(){
    $('#wa-status').hidden=false;
    renderConnections();
    return;
+  }
+  if(status.state==='error'){
+   if(state?.connections?.whatsapp)state.connections.whatsapp={...state.connections.whatsapp,state:'error'};
+   renderConnections();return;
   }
   if(status.state==='qr_expired'){
    if(state?.connections?.whatsapp)state.connections.whatsapp={...state.connections.whatsapp,state:'qr_expired'};
