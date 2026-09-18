@@ -2,7 +2,7 @@ import http from 'node:http';
 import {mkdir, readdir, readFile, writeFile, rename, unlink, rm} from 'node:fs/promises';
 import {createHash, randomUUID, timingSafeEqual} from 'node:crypto';
 import path from 'node:path';
-import makeWASocket, {useMultiFileAuthState, DisconnectReason, normalizeMessageContent, jidNormalizedUser} from '@whiskeysockets/baileys';
+import makeWASocket, {useMultiFileAuthState, DisconnectReason, normalizeMessageContent, jidNormalizedUser, fetchLatestBaileysVersion} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import {normalize} from './normalize.mjs';
 
@@ -12,11 +12,16 @@ const token = process.env.BRIDGE_TOKEN || '';
 if (token.length < 24) throw new Error('BRIDGE_TOKEN must have at least 24 characters');
 const appUrl = process.env.APP_URL || 'http://localhost:8000';
 await mkdir(path.join(dir, 'spool'), {recursive: true});
-let socket, qr = null, state = 'connecting', selected = new Set(), selfIds = new Set();
-let reconnectTimer, controlBusy = false, authWrites = Promise.resolve();
+let socket, qr = null, lastQr = null, state = 'connecting', selected = new Set(), selfIds = new Set();
+let reconnectTimer, controlBusy = false, authWrites = Promise.resolve(), waVersion = null;
 const pauseFile = path.join(dir, 'paused');
 let paused = false;
 try { await readFile(pauseFile); paused = true; state = 'disconnected'; } catch {}
+
+try {
+  const latest = await fetchLatestBaileysVersion();
+  if (Array.isArray(latest?.version)) waVersion = latest.version;
+} catch {}
 
 // Keep the last confirmed allowlist across app outages and bridge restarts.
 const selectionFile = path.join(dir, 'selected.json');
@@ -46,25 +51,38 @@ async function start() {
   if (paused) return;
   const auth = await useMultiFileAuthState(path.join(dir, 'auth'));
   if (paused) return;
-  socket = makeWASocket({auth: auth.state, logger, markOnlineOnConnect: false,
-    syncFullHistory: false, shouldSyncHistoryMessage: () => false});
+  const socketOpts = {
+    auth: auth.state, logger, markOnlineOnConnect: false,
+    syncFullHistory: false, shouldSyncHistoryMessage: () => false,
+    browser: ['Mac OS', 'Chrome', '125.0.0.0']
+  };
+  if (waVersion) socketOpts.version = waVersion;
+  socket = makeWASocket(socketOpts);
   const activeSocket = socket;
   socket.ev.on('creds.update', () => {
     if(!paused && socket === activeSocket) authWrites = authWrites.then(auth.saveCreds).catch(() => {state='error';});
   });
   socket.ev.on('connection.update', update => {
     if(paused || socket !== activeSocket) return;
-    if (update.qr) { qr = update.qr; state = 'needs_scan'; }
+    if (update.qr) { qr = update.qr; lastQr = update.qr; state = 'needs_scan'; }
     if (update.connection === 'open') {
-      state = 'connected'; qr = null;
+      state = 'connected'; qr = null; lastQr = null;
       selfIds = new Set([socket.user?.id, socket.user?.lid].filter(Boolean).map(jidNormalizedUser));
     }
     if (update.connection === 'close') {
       qr = null;
-      const loggedOut = update.lastDisconnect?.error?.output?.statusCode === DisconnectReason.loggedOut;
-      state = loggedOut ? 'logged_out' : 'reconnecting';
-      if (!loggedOut) {
-        clearTimeout(reconnectTimer);
+      const statusCode = update.lastDisconnect?.error?.output?.statusCode;
+      const loggedOut = statusCode === DisconnectReason.loggedOut;
+      const timedOut = statusCode === DisconnectReason.timedOut || statusCode === 408;
+      clearTimeout(reconnectTimer);
+      if (loggedOut) {
+        state = 'logged_out';
+      } else if (timedOut || !activeSocket?.user) {
+        // Pairing timed out or closed before login: STOP reconnecting to avoid anti-bot risk control bans.
+        state = 'qr_expired';
+      } else {
+        // Authenticated user session was dropped: reconnect automatically.
+        state = 'reconnecting';
         reconnectTimer = setTimeout(() => start().catch(() => { state = 'error'; }), 5000);
       }
     }
@@ -127,7 +145,7 @@ http.createServer(async (req, res) => {
       try {
         let remoteLogout=true;
         if(req.url==='/pause'){
-          await writeFile(pauseFile,'1');paused=true;clearTimeout(reconnectTimer);qr=null;state='disconnected';
+          await writeFile(pauseFile,'1');paused=true;clearTimeout(reconnectTimer);qr=null;lastQr=null;state='disconnected';
           const prior=socket;socket=null;
           try {
             if(prior?.user){
@@ -143,6 +161,7 @@ http.createServer(async (req, res) => {
           await mkdir(path.join(dir,'spool'),{recursive:true});
         }else{
           clearTimeout(reconnectTimer);
+          qr=null;lastQr=null;
           const prior=socket;socket=null;
           prior?.end(new Error('Restarting connection'));
           await authWrites;
@@ -155,7 +174,7 @@ http.createServer(async (req, res) => {
         res.end(JSON.stringify({ok:true,remote_logout:remoteLogout}));
       } finally {controlBusy=false;}
     } else if (req.method === 'GET' && req.url === '/status') {
-      res.end(JSON.stringify({state, qr}));
+      res.end(JSON.stringify({state, qr: qr || (state === 'qr_expired' ? lastQr : null)}));
     } else if (req.method === 'GET' && req.url === '/groups') {
       if (state !== 'connected') { res.writeHead(409); res.end('{}'); return; }
       const all = await socket.groupFetchAllParticipating();

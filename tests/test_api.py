@@ -157,3 +157,45 @@ async def test_group_settings_isolated_atomic_and_cancel_on_save(config):
         assert store.get('group_hidden_keywords_telegram')==[] and store.alerts(True)
         r=await client.post('/api/group-settings/telegram',json={'keywords':[],'selections':{'1':False}})
         assert r.status_code==200 and not store.alerts(True)
+
+
+@pytest.mark.asyncio
+async def test_connection_status_preserves_logged_out_after_timeout(config):
+    import time
+    app=create_app(config,workers=False)
+    async with app.router.lifespan_context(app),httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test',auth=('admin',config.admin_password)) as client:
+        store=app.state.store
+        store.connector("whatsapp", "logged_out")
+        # Simulate > 45 seconds passing since last update
+        store.db.execute("UPDATE connectors SET updated=? WHERE name='whatsapp'", (time.time() - 100,))
+        store.db.commit()
+        state = (await client.get('/api/state')).json()
+        assert state['connections']['whatsapp']['state'] == 'logged_out'
+
+        # Also test qr_expired state
+        store.connector("whatsapp", "qr_expired")
+        store.db.execute("UPDATE connectors SET updated=? WHERE name='whatsapp'", (time.time() - 100,))
+        store.db.commit()
+        state = (await client.get('/api/state')).json()
+        assert state['connections']['whatsapp']['state'] == 'qr_expired'
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_qr_expired_returns_image(config, monkeypatch):
+    orig_request = httpx.AsyncClient.request
+    async def mock_request(self, method, url, **kwargs):
+        if "/status" in str(url):
+            return httpx.Response(200, json={"state": "qr_expired"}, request=httpx.Request(method, url))
+        return await orig_request(self, method, url, **kwargs)
+    monkeypatch.setattr(httpx.AsyncClient, "request", mock_request)
+
+    app = create_app(config, workers=False)
+    async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url='http://test', auth=('admin', config.admin_password)) as client:
+        res = await client.get('/api/whatsapp/qr')
+        assert res.status_code == 200
+        data = res.json()
+        assert data.get("state") == "qr_expired"
+        assert data.get("image", "").startswith("data:image/svg+xml;base64,")
+
+
+

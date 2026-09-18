@@ -7,7 +7,8 @@ function groupDirty(platform){const d=groupDrafts[platform];return !!d&&(Object.
 let intervalDirty=false,quietDirty=false;
 let state, page='inbox', toastTimer, loading=false;
 const names={home:'在家长响铃',away:'外出通知',paused:'暂停提醒'};
-const statusNames={connected:'已连接',connecting:'连接中',reconnecting:'连接中',needs_scan:'等待扫码',logged_out:'已退出',not_configured:'未配置',needs_login:'等待登录',waiting:'等待连接',offline:'连接中断',disconnected:'连接中断',error:'连接异常',message_error:'消息处理异常'};
+const FALLBACK_QR='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 155 155" width="155" height="155"><rect width="155" height="155" fill="%23fff"/><path fill="%23222" d="M15 15h40v40H15zm6 6v28h28V21zm5 5h18v18H26zm74-11h40v40h-40zm6 6v28h28V21zm5 5h18v18h-18zM15 100h40v40H15zm6 6v28h28v-28zm5 5h18v18H26zm40-85h10v10H66zm18 0h10v10H84zm-18 18h10v10H66zm18 0h10v10H84zm-18 18h10v10H66zm18 0h10v10H84zm22 0h10v10h-10zm0 18h10v10h-10zm-40 0h10v10H66zm18 0h10v10H84zm-68 18h10v10H16zm18 0h10v10H34zm32 0h10v10H66zm18 0h10v10H84zm22 0h10v10h-10zm18 0h10v10h-10zm-76 18h10v10H34zm18 0h10v10H52zm32 0h10v10H84zm38 0h10v10h-10zm-88 18h10v10H34zm32 0h10v10H66zm38 0h10v10h-10zm18 0h10v10h-10zm-70 18h10v10H52zm18 0h10v10H70zm34 0h10v10h-10zm18 0h10v10h-10z"/></svg>';
+const statusNames={connected:'已连接',connecting:'连接中',reconnecting:'连接中',needs_scan:'等待扫码',logged_out:'已退出',not_configured:'未配置',needs_login:'等待登录',waiting:'等待连接',offline:'连接中断',disconnected:'已断开',qr_expired:'二维码已过期',error:'连接异常',message_error:'消息处理异常'};
 const date=t=>new Date(t*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
 async function api(route,data){const r=await fetch(route,{method:data===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-Requested-With':'oncall'},...(data!==undefined?{body:JSON.stringify(data)}:{})});let result;try{result=await r.json();}catch{throw Error('服务器响应异常');}if(!r.ok){const error=Error(result.retry_after?`请等待 ${result.retry_after} 秒后重试`:typeof result.detail==='string'?result.detail:`请求失败 (${r.status})`);error.login=result.login;throw error;}return result;}
 function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,3500);}
@@ -75,10 +76,11 @@ function renderConnections(){
  const name=connPlatform;
  const c=state.connections[name]||{state:'waiting'},online=c.state==='connected',row=el('div',undefined,'status-row'),status=el('span',undefined,'connection-status'),dot=el('i',undefined,'status-dot '+connectionTone(c.state));
  dot.setAttribute('aria-hidden','true');status.append(dot,document.createTextNode(statusNames[c.state]||c.state));
- const isDisconnected=!!state.disconnected?.[name]||['logged_out','disconnected','not_configured'].includes(c.state);
+ const isDisconnected=!!state.disconnected?.[name]||['logged_out','disconnected','not_configured','qr_expired'].includes(c.state);
  const btnText=isDisconnected?'重新连接':'断开连接';
  const controls=el('div',undefined,'connection-controls'),button=el('button',btnText,'secondary');
  button.type='button';button.setAttribute('aria-label',btnText+' '+(name==='whatsapp'?'WhatsApp':'Telegram'));
+ if(name==='telegram'&&c.state==='not_configured'){button.disabled=true;button.title='请先在服务器 .env 配置 TELEGRAM_API_ID / TELEGRAM_API_HASH';}
  button.onclick=()=>{
   const disconnect=!isDisconnected,platform=name==='whatsapp'?'WhatsApp':'Telegram';
   if(disconnect){
@@ -96,14 +98,34 @@ function renderConnections(){
   });
  };
  controls.append(status,button);const title=el('strong',undefined,'platform-title');if(name==='whatsapp'){title.innerHTML='<span class="full-name">WhatsApp Business</span><span class="short-name">WA Business</span>';}else{title.textContent='Telegram';}row.append(title,controls);target.append(row);
- const waConnected=state.connections.whatsapp?.state==='connected';
- const waWaiting=!waConnected&&!state.disconnected?.whatsapp;
- $('#wa-login').hidden=connPlatform!=='whatsapp'||!waWaiting;
- if(state.disconnected?.whatsapp)$('#wa-status').textContent='';
- else if(waWaiting&&!$('#qr-image').getAttribute('src'))$('#wa-status').textContent='正在连接 WhatsApp…';
- $('#wa-status').hidden=!$('#wa-status').textContent;
- if(!waWaiting){$('#qr-box').hidden=true;$('#qr-image').hidden=true;$('#qr-image').removeAttribute('src');}
- else if(connPlatform==='whatsapp'&&waWaiting){$('#qr-box').hidden=false;showQr();}
+ const waState=state.connections.whatsapp?.state;
+ const waConnected=waState==='connected';
+ const waDisconnected=!!state.disconnected?.whatsapp||waState==='disconnected';
+ const waLoggedOut=waState==='logged_out';
+ const waExpired=waState==='qr_expired';
+ const waWaiting=!waConnected&&!waDisconnected&&!waLoggedOut&&!waExpired;
+ $('#wa-login').hidden=connPlatform!=='whatsapp'||waConnected||waDisconnected;
+ if(waDisconnected||waConnected){
+  $('#wa-status').textContent='';$('#wa-status').hidden=true;
+  $('#qr-box').hidden=true;$('#qr-box').classList.remove('expired');$('#qr-overlay').hidden=true;$('#qr-image').hidden=true;$('#qr-image').removeAttribute('src');
+ }else if(waLoggedOut){
+  $('#qr-box').hidden=true;$('#qr-box').classList.remove('expired');$('#qr-overlay').hidden=true;$('#qr-image').hidden=true;$('#qr-image').removeAttribute('src');
+  $('#wa-status').textContent='登录已失效，请点击「重新连接」重新扫码。';
+  $('#wa-status').hidden=false;
+ }else if(waExpired){
+  $('#qr-box').hidden=false;$('#qr-box').classList.add('expired');
+  if(!$('#qr-image').getAttribute('src'))$('#qr-image').src=FALLBACK_QR;
+  $('#qr-image').hidden=false;
+  $('#qr-overlay').hidden=false;
+  $('#wa-status').textContent='二维码已过期，请点击按钮重新加载。';
+  $('#wa-status').hidden=false;
+  if(connPlatform==='whatsapp'&&(!$('#qr-image').getAttribute('src')||$('#qr-image').getAttribute('src')===FALLBACK_QR))showQr();
+ }else if(connPlatform==='whatsapp'&&waWaiting){
+  $('#qr-box').classList.remove('expired');$('#qr-overlay').hidden=true;
+  if(!$('#qr-image').getAttribute('src')&&!$('#wa-status').textContent)$('#wa-status').textContent='正在连接 WhatsApp…';
+  $('#wa-status').hidden=!$('#wa-status').textContent;
+  showQr();
+ }
  if(lastTgLogin)renderLogin(lastTgLogin);
  else $('.telegram-login').hidden=connPlatform!=='telegram'||state.connections.telegram?.state==='connected'||!!state.disconnected?.telegram;
  const providers=$('#providers');providers.replaceChildren();for(const [name,key]of [['在家 / Bark 长响铃','bark_home'],['外出 / Bark 普通通知','bark_away']]){const configured=!!state.configured[key];const row=el('div',undefined,'status-row');row.append(el('strong',name),el('span',configured?'凭据已配置':'尚未配置',configured?'provider-configured':'provider-unconfigured'));providers.append(row);}
@@ -111,7 +133,7 @@ function renderConnections(){
  if($('#bark-key')&&state.configured.bark_away)$('#bark-key').placeholder='已配置时无需重填，输入可更换 Key';
 }
 
-async function refresh(){if(loading)return;loading=true;try{state=await api('/api/state');render();showNewGroups();if(page==='setup'){await refreshLogin();if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp)await showQr();}}catch(e){showError(e);}finally{loading=false;}}
+async function refresh(){if(loading)return;loading=true;try{state=await api('/api/state');render();showNewGroups();if(page==='setup'){await refreshLogin();if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')await showQr();}}catch(e){showError(e);}finally{loading=false;}}
 
 const pages={inbox:['提醒收件箱','需要你的时候，及时找到你。'],groups:['监控群组','把注意力留给真正重要的对话。'],samples:['职责样本','从你的判断开始，理解你的工作。'],setup:['连接与设置','一次连接，持续关注。']};
 
@@ -142,7 +164,7 @@ async function setPage(targetPage,syncUrl=true){
  }
  if(page==='setup'){
   await refreshLogin();
-  if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp)await showQr();
+  if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')await showQr();
  }
 }
 
@@ -169,22 +191,46 @@ $('#interval-form').oninput=()=>{intervalDirty=true;};
 $('#interval-form').onsubmit=e=>{e.preventDefault();action(async()=>{const values={call_interval:Number($('#call-interval').value),push_interval:Number($('#push-interval').value)};await api('/api/intervals',values);intervalDirty=Number($('#call-interval').value)!==values.call_interval||Number($('#push-interval').value)!==values.push_interval;toast('间隔已保存');});};
 let qrLoading=false;
 async function showQr(){
- if(qrLoading||state?.connections.whatsapp?.state==='connected'||state?.disconnected?.whatsapp)return;
+ if(qrLoading||state?.connections.whatsapp?.state==='connected'||state?.disconnected?.whatsapp||state?.connections.whatsapp?.state==='logged_out'||state?.connections.whatsapp?.state==='qr_expired')return;
  qrLoading=true;
  try{
   const status=await api('/api/whatsapp/qr');
-  if(state?.connections.whatsapp?.state==='connected'||state?.disconnected?.whatsapp)return;
-  if(status.state==='disconnected'){
-   state.disconnected.whatsapp=true;state.connections.whatsapp={...state.connections.whatsapp,state:'disconnected'};renderConnections();return;
+   if(status.state==='connected'){
+    if(state?.connections?.whatsapp)state.connections.whatsapp={...state.connections.whatsapp,state:'connected'};
+    renderConnections();
+    return;
+   }
+   if(status.state==='disconnected'){
+    state.disconnected.whatsapp=true;state.connections.whatsapp={...state.connections.whatsapp,state:'disconnected'};renderConnections();return;
+   }
+  if(status.state==='logged_out'){
+   if(state?.connections?.whatsapp)state.connections.whatsapp={...state.connections.whatsapp,state:'logged_out'};
+   $('#qr-box').hidden=true;$('#qr-image').hidden=true;$('#qr-image').removeAttribute('src');
+   $('#wa-status').textContent='登录已失效，请点击「重新连接」重新扫码。';
+   $('#wa-status').hidden=false;
+   renderConnections();
+   return;
   }
-  $('#qr-box').hidden=!status.image;$('#qr-image').hidden=!status.image;
+  if(status.state==='qr_expired'){
+   if(state?.connections?.whatsapp)state.connections.whatsapp={...state.connections.whatsapp,state:'qr_expired'};
+   $('#qr-box').hidden=false;$('#qr-box').classList.add('expired');
+   $('#qr-image').src=status.image||$('#qr-image').getAttribute('src')||FALLBACK_QR;
+   $('#qr-image').hidden=false;
+   $('#qr-overlay').hidden=false;
+   $('#wa-status').textContent='二维码已过期，请点击按钮重新加载。';
+   $('#wa-status').hidden=false;
+   renderConnections();
+   return;
+  }
+  $('#qr-box').hidden=!status.image;$('#qr-box').classList.remove('expired');$('#qr-overlay').hidden=true;
+  $('#qr-image').hidden=!status.image;
   if(status.image){$('#qr-image').src=status.image;$('#wa-status').textContent='打开 WhatsApp → 已关联设备 → 关联设备，扫描二维码。';}
-  else{$('#qr-image').removeAttribute('src');$('#wa-status').textContent=status.state==='logged_out'?'登录已失效，请点击「重新连接」重新扫码。':status.state==='connected'?'登录已恢复，正在更新连接状态…':'正在连接 WhatsApp…';}
+  else{$('#qr-image').removeAttribute('src');$('#wa-status').textContent=status.state==='connected'?'登录已恢复，正在更新连接状态…':'正在连接 WhatsApp…';}
  }catch(e){$('#qr-box').hidden=true;$('#qr-image').removeAttribute('src');$('#wa-status').textContent='暂时无法读取二维码：'+e.message;showError(e);}
  finally{qrLoading=false;}
 }
 
-setInterval(()=>{refresh();if(page==='setup'&&!tgBusy)refreshLogin();if(page==='setup'&&connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp)showQr();},10000);
+setInterval(()=>{refresh();if(page==='setup'&&!tgBusy)refreshLogin();if(page==='setup'&&connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')showQr();},10000);
 setInterval(()=>$('#clock').textContent=new Date().toLocaleString('zh-CN',{hour12:false}),1000);
 setPage(getInitialPage(),true);
 refresh();
@@ -215,6 +261,23 @@ $('#tg-password-form').onsubmit=e=>{e.preventDefault();const password=$('#tg-pas
 document.querySelectorAll('.tg-cancel-btn').forEach(b=>{b.onclick=()=>loginAction('cancel',{});});
 $('#tg-groups').onclick=()=>document.querySelector('[data-page="groups"]').click();
 setInterval(loginButtons,1000);
+const qrReloadBtn=$('#qr-reload');
+if(qrReloadBtn){
+ qrReloadBtn.onclick=()=>action(async()=>{
+  qrReloadBtn.disabled=true;
+  $('#qr-box').classList.remove('expired');
+  $('#qr-overlay').hidden=true;
+  $('#wa-status').textContent='正在重新生成二维码…';
+  $('#wa-status').hidden=false;
+  try{
+   await api('/api/connections/whatsapp/reconnect',{confirmed:false});
+   await refresh();
+   await showQr();
+  }finally{
+   qrReloadBtn.disabled=false;
+  }
+ });
+}
 
 document.querySelectorAll('[data-group-platform]').forEach(b=>{
  b.onclick=()=>{groupPlatform=b.dataset.groupPlatform;try{localStorage.setItem('group-platform',groupPlatform);}catch{}$('#hidden-groups-section').open=false;$('#group-keyword').value='';if(state)renderGroups();};
@@ -230,7 +293,7 @@ document.querySelectorAll('[data-conn-platform]').forEach(b=>{
   try{localStorage.setItem('conn-platform',connPlatform);}catch{}
   renderConnections();
   if(connPlatform==='telegram'&&!tgBusy)refreshLogin();
-  if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp)showQr();
+   if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')showQr();
  };
  b.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const platform=e.key==='Home'?'whatsapp':e.key==='End'?'telegram':connPlatform==='whatsapp'?'telegram':'whatsapp';const next=document.querySelector('[data-conn-platform="'+platform+'"]');next.click();next.focus();}};
 });

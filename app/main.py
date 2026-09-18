@@ -106,7 +106,7 @@ class Event(BaseModel):
 
 
 class Heartbeat(BaseModel):
-    state: Literal["connecting", "needs_scan", "connected", "logged_out", "reconnecting", "error", "message_error", "disconnected"]
+    state: Literal["connecting", "needs_scan", "connected", "logged_out", "reconnecting", "error", "message_error", "disconnected", "qr_expired"]
 
 
 def create_app(config=None, workers=True):
@@ -141,7 +141,7 @@ def create_app(config=None, workers=True):
         for name in ["telegram", "whatsapp"]:
             result.setdefault(name, {"name": name, "state": "waiting", "updated": 0, "changed": 0})
             row = result[name]
-            if row["state"] not in {"not_configured", "needs_login", "disconnected"} and time.time() - row["updated"] > 45:
+            if row["state"] not in {"not_configured", "needs_login", "disconnected", "logged_out", "qr_expired"} and time.time() - row["updated"] > 45:
                 row["state"] = "offline"
         return result
 
@@ -441,6 +441,11 @@ def create_app(config=None, workers=True):
         status = await bridge("/status")
         if status.get("qr"):
             img = qrcode.make(status["qr"], image_factory=qrcode.image.svg.SvgPathImage)
+            buf = io.BytesIO()
+            img.save(buf)
+            status["image"] = "data:image/svg+xml;base64," + base64.b64encode(buf.getvalue()).decode()
+        elif status.get("state") == "qr_expired":
+            img = qrcode.make("https://whatsapp.com/qr/expired-placeholder", image_factory=qrcode.image.svg.SvgPathImage)
             buf = io.BytesIO()
             img.save(buf)
             status["image"] = "data:image/svg+xml;base64," + base64.b64encode(buf.getvalue()).decode()
