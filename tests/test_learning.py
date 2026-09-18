@@ -71,3 +71,33 @@ async def test_evaluation_uses_holdout_no_labels_and_records_results(app,monkeyp
         monkeypatch.setattr(httpx.AsyncClient,'post',invalid)
         rid=(await c.post('/api/ai/evaluate',json={'version_id':vid})).json()['id']
         assert (await c.get('/api/ai/runs/'+str(rid))).json()['status']=='failed'
+
+@pytest.mark.asyncio
+async def test_automatic_splits_are_grouped_and_stable(app):
+    async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test',auth=('admin',app.state.telegram.config.admin_password),headers={'X-Requested-With':'oncall'}) as c:
+        first,second=seed(app)
+        await c.post('/api/learning/rules',json={'rules':'production'})
+        await c.post(f'/api/learning/samples/{first}',json={'label':'action'})
+        v1=(await c.post('/api/learning/publish',json={})).json()['id']
+        frozen=(await c.get(f'/api/learning/versions/{v1}')).json()
+        assert [r['split'] for r in frozen['samples']]==['reference']
+        await c.post(f'/api/learning/samples/{second}',json={'label':'inform'})
+        v2=(await c.post('/api/learning/publish',json={})).json()['id']
+        samples=(await c.get(f'/api/learning/versions/{v2}')).json()['samples']
+        assert [r['split'] for r in samples]==['reference','evaluation']
+        store=app.state.store
+        extra=store.ingest({'platform':'telegram','chat_id':'eval','message_id':'extra','timestamp':time.time(),'text':'another event','sender':'operator'})
+        await c.post(f'/api/learning/samples/{extra}',json={'label':'irrelevant'})
+        await c.post(f'/api/learning/samples/{second}/unreview',json={})
+        v3=(await c.post('/api/learning/publish',json={})).json()['id']
+        samples=(await c.get(f'/api/learning/versions/{v3}')).json()['samples']
+        assert {r['id']:r['split'] for r in samples}=={first:'reference',extra:'evaluation'}
+        assert (await c.get(f'/api/learning/versions/{v1}')).json()==frozen
+
+@pytest.mark.asyncio
+async def test_omitted_split_preserves_legacy_review(app):
+    async with app.router.lifespan_context(app), httpx.AsyncClient(transport=httpx.ASGITransport(app=app),base_url='http://test',auth=('admin',app.state.telegram.config.admin_password),headers={'X-Requested-With':'oncall'}) as c:
+        first,_=seed(app)
+        await c.post(f'/api/learning/samples/{first}',json={'label':'action','split':'evaluation'})
+        await c.post(f'/api/learning/samples/{first}',json={'label':'inform'})
+        assert app.state.store.rows('SELECT split FROM sample_reviews WHERE message_id=?',(first,))[0]['split']=='evaluation'

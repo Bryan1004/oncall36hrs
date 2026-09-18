@@ -37,6 +37,8 @@ class Store:
             self.db.execute('ALTER TABLE messages ADD COLUMN from_me INTEGER')
         if 'available' not in {r[1] for r in self.db.execute('PRAGMA table_info(groups)')}:
             self.db.execute('ALTER TABLE groups ADD COLUMN available INTEGER NOT NULL DEFAULT 1')
+        if 'mentions_only' not in {r[1] for r in self.db.execute('PRAGMA table_info(groups)')}:
+            self.db.execute('ALTER TABLE groups ADD COLUMN mentions_only INTEGER NOT NULL DEFAULT 0')
         for key, value in {"mode": "paused", "call_interval": 120, "push_interval": 60,
                            "next_delivery": 0, "last_delivery": 0}.items():
             self.db.execute("INSERT OR IGNORE INTO settings VALUES (?,?)", (key, json.dumps(value)))
@@ -117,6 +119,9 @@ class Store:
         now = time.time() if now is None else now
         platform, chat = event["platform"], str(event["chat_id"])
         if not self.selected(platform, chat):
+            return None
+        group = self.db.execute("SELECT mentions_only FROM groups WHERE platform=? AND id=?", (platform, chat)).fetchone()
+        if group['mentions_only'] and (not event.get('mentioned') or event.get('from_me')):
             return None
         reason = "mention" if event.get("mentioned") else "reply" if event.get("reply_to_me") else ""
         if event.get("from_me"):

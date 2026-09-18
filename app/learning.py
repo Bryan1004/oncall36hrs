@@ -15,7 +15,7 @@ class Review(BaseModel):
     urgent: bool = False
     service: str = Field(default='', max_length=200)
     rationale: str = Field(default='', max_length=2000)
-    split: Literal['reference','evaluation'] = 'reference'
+    split: Literal['reference','evaluation'] | None = None
 
 
 class Publish(BaseModel):
@@ -31,9 +31,34 @@ def install_learning(app, store):
         id INTEGER PRIMARY KEY, created REAL NOT NULL, rules TEXT NOT NULL,
         note TEXT NOT NULL, samples TEXT NOT NULL);
     ''')
+    store.db.execute('''CREATE TABLE IF NOT EXISTS sample_group_splits (
+        platform TEXT NOT NULL, chat_id TEXT NOT NULL, split TEXT NOT NULL,
+        PRIMARY KEY (platform, chat_id))''')
+    # Preserve historical holdout groups without changing frozen snapshots.
+    with store.db:
+        for version in store.rows('SELECT samples FROM dataset_versions ORDER BY id'):
+            for sample in json.loads(version['samples']):
+                store.db.execute('''INSERT INTO sample_group_splits VALUES (?,?,?)
+                    ON CONFLICT(platform,chat_id) DO UPDATE SET split=
+                    CASE WHEN excluded.split='evaluation' THEN 'evaluation'
+                         ELSE sample_group_splits.split END''',
+                    (sample['platform'], sample['chat_id'], sample.get('split', 'reference')))
     router=APIRouter(prefix='/api/learning')
 
-    SAMPLE_FILTER = "m.platform IN ('whatsapp','telegram') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention'"
+    def assign_splits(rows):
+        assigned={(r['platform'],r['chat_id']):r['split']
+                  for r in store.rows('SELECT * FROM sample_group_splits')}
+        for row in rows:
+            key=(row['platform'],row['chat_id'])
+            if key not in assigned:
+                evaluations=sum(value=='evaluation' for value in assigned.values())
+                split='evaluation' if assigned and evaluations < (len(assigned)+5)//5 else 'reference'
+                store.db.execute('INSERT INTO sample_group_splits VALUES (?,?,?)',(*key,split))
+                assigned[key]=split
+            row['split']=assigned[key]
+
+
+    SAMPLE_FILTER = "m.platform IN ('whatsapp','telegram') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention' AND NOT EXISTS (SELECT 1 FROM groups mg WHERE mg.platform=m.platform AND mg.id=m.chat_id AND mg.mentions_only=1)"
 
     def samples():
         rows=store.rows('''SELECT m.*,g.title,r.service,r.rationale,r.split,r.context
@@ -84,8 +109,8 @@ def install_learning(app, store):
         rows=store.rows('''SELECT m.*,g.title,r.service,r.rationale,r.split FROM messages m
           JOIN groups g ON m.platform=g.platform AND m.chat_id=g.id
           LEFT JOIN sample_reviews r ON r.message_id=m.id
-          WHERE m.platform=? AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention' ORDER BY m.id DESC LIMIT 50 OFFSET ?''',(platform,offset))
-        counts={p:store.rows("SELECT count(*) AS n FROM messages WHERE platform=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention'",(p,))[0]['n'] for p in ('whatsapp','telegram')}
+          WHERE m.platform=? AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention' AND NOT EXISTS (SELECT 1 FROM groups mg WHERE mg.platform=m.platform AND mg.id=m.chat_id AND mg.mentions_only=1) ORDER BY m.id DESC LIMIT 50 OFFSET ?''',(platform,offset))
+        counts={p:store.rows("SELECT count(*) AS n FROM messages WHERE platform=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' AND NOT EXISTS (SELECT 1 FROM groups mg WHERE mg.platform=messages.platform AND mg.id=messages.chat_id AND mg.mentions_only=1)",(p,))[0]['n'] for p in ('whatsapp','telegram')}
         return {'items':rows,'total':counts[platform],'counts':counts}
 
     @router.post('/rules')
@@ -95,13 +120,15 @@ def install_learning(app, store):
 
     @router.post('/samples/{mid}')
     async def review(mid:int, body:Review):
-        rows=store.rows("SELECT * FROM messages WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' AND platform IN ('whatsapp','telegram')",(mid,))
+        rows=store.rows("SELECT * FROM messages WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' AND NOT EXISTS (SELECT 1 FROM groups mg WHERE mg.platform=messages.platform AND mg.id=messages.chat_id AND mg.mentions_only=1) AND platform IN ('whatsapp','telegram')",(mid,))
         if not rows: raise HTTPException(404)
         snapshot=context(rows[0])
+        prior=store.rows('SELECT split FROM sample_reviews WHERE message_id=?',(mid,))
+        split=body.split or (prior[0]['split'] if prior else 'reference')
         with store.db:
             store.db.execute('UPDATE messages SET label=?,urgent=? WHERE id=?',(body.label,body.urgent,mid))
             store.db.execute('INSERT OR REPLACE INTO sample_reviews VALUES (?,?,?,?,?,?)',
-                (mid,body.service,body.rationale,body.split,json.dumps(snapshot,ensure_ascii=False),time.time()))
+                (mid,body.service,body.rationale,split,json.dumps(snapshot,ensure_ascii=False),time.time()))
         return {'ok':True}
 
     @router.post('/samples/{mid}/own')
@@ -129,6 +156,7 @@ def install_learning(app, store):
         if not rules.strip(): raise HTTPException(409,'请先保存职责说明')
         # Freeze contexts and labels: subsequent editing/pruning cannot mutate a version.
         with store.db:
+            assign_splits(rows)
             cur=store.db.execute('INSERT INTO dataset_versions(created,rules,note,samples) VALUES (?,?,?,?)',
                 (time.time(),rules,body.note,json.dumps(rows,ensure_ascii=False)))
         return {'id':cur.lastrowid}

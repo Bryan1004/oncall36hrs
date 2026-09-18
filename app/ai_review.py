@@ -148,7 +148,7 @@ def install_ai(app,store):
             raise HTTPException(409,'已有试判任务正在运行')
         candidate=load_version(body.version_id)
         tests=evaluation_samples(candidate['samples'],body.limit,body.sampling)
-        if not tests:raise HTTPException(409,'该版本没有验收样本；请标记后发布新版本')
+        if not tests:raise HTTPException(409,'该版本没有独立测试样本；请审核其他群的消息后发布新版本')
         versions=[candidate]
         if body.compare_id and body.compare_id!=body.version_id:versions.append(load_version(body.compare_id))
         run_config=dict(cfg,version_ids=[v['id'] for v in versions],test_ids=[r['id'] for r in tests],sampling=body.sampling,prompt=PROMPT)

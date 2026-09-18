@@ -7,14 +7,14 @@ function selectOptions(options,value){const s=el('select');for(const [v,t]of opt
 async function loadLearning(){
  learningState=await api('/api/learning');
  if(!learningLoaded){$('#responsibility-rules').value=learningState.rules;const cfg=await api('/api/ai');$('#ai-base').value=cfg.base_url;$('#ai-model').value=cfg.model;$('#ai-config-status').textContent=cfg.configured?'密钥已配置':'尚未配置';learningLoaded=true;}
- $('#learning-count').textContent=`已审核 ${learningState.reviewed} 条 · 验收 ${learningState.evaluation_count} 条`;
+ $('#learning-count').textContent=`已审核 ${learningState.reviewed} 条 · 发布时自动分配参考与测试样本`;
  const list=$('#dataset-versions');list.replaceChildren();for(const v of learningState.versions){const row=el('div',undefined,'version-row');
  let versionLabel=`V${v.id}${learningState.active===v.id?' · 默认试判版':''}`;
  if(v.superseded_by)versionLabel+=` · 历史版本，已被 V${v.superseded_by} 替代`;
  if(v.retired)versionLabel+=' · 清理后无可用样本';
- row.append(el('strong',versionLabel),el('p',`${v.count} 条（验收 ${v.evaluation_count}） · 新增 ${v.added} / 修改 ${v.changed} / 移除 ${v.removed}`,'subtle'));if(v.note)row.append(el('p',v.note,'subtle'));const show=el('button','查看快照','secondary'),activate=el('button','默认试判','secondary');
+ row.append(el('strong',versionLabel),el('p',`${v.count} 条（模型测试 ${v.evaluation_count}） · 新增 ${v.added} / 修改 ${v.changed} / 移除 ${v.removed}`,'subtle'));if(!v.evaluation_count)row.append(el('p','暂无独立测试样本，请审核其他群的消息后发布新版本。','subtle'));if(v.note)row.append(el('p',v.note,'subtle'));const show=el('button','查看快照','secondary'),activate=el('button','默认试判','secondary');
  if(v.superseded_by||v.retired)activate.disabled=true;
- show.onclick=()=>action(async()=>{const data=await api('/api/learning/versions/'+v.id);const detail=$('#version-detail');detail.hidden=false;detail.replaceChildren(el('h2','V'+v.id+' · 冻结快照'),el('p',data.rules,'message'));for(const s of data.samples){const box=el('details');box.append(el('summary',`${s.title} · ${labels[s.label]} · ${s.split==='evaluation'?'验收':'参考'}`),el('p',s.text,'message'),el('p',s.rationale||'未填写判断理由','subtle'),el('pre',s.context.map(c=>c.sender+'：'+c.text).join('\n'),'context'));detail.append(box);}});activate.onclick=()=>action(async()=>{await api('/api/learning/versions/'+v.id+'/activate',{});await loadLearning();$('#ai-candidate').value=String(v.id);toast('默认试判版本已切换；不启用响铃');});row.append(show,activate);list.append(row);}
+ show.onclick=()=>action(async()=>{const data=await api('/api/learning/versions/'+v.id);const detail=$('#version-detail');detail.hidden=false;detail.replaceChildren(el('h2','V'+v.id+' · 冻结快照'),el('p',data.rules,'message'));for(const s of data.samples){const box=el('details');box.append(el('summary',`${s.title} · ${labels[s.label]} · ${s.split==='evaluation'?'模型测试':'参考案例'}`),el('p',s.text,'message'),el('p',s.rationale||'未填写判断理由','subtle'),el('pre',s.context.map(c=>c.sender+'：'+c.text).join('\n'),'context'));detail.append(box);}});activate.onclick=()=>action(async()=>{await api('/api/learning/versions/'+v.id+'/activate',{});await loadLearning();$('#ai-candidate').value=String(v.id);toast('默认试判版本已切换；不启用响铃');});row.append(show,activate);list.append(row);}
  for(const id of ['ai-candidate','ai-baseline']){const select=$('#'+id),old=select.value;select.replaceChildren();if(id==='ai-baseline'){const option=el('option','不对比');option.value='';select.append(option);}for(const v of learningState.versions){if(v.superseded_by||v.retired)continue;const o=el('option','V'+v.id);o.value=v.id;select.append(o);}if([...select.options].some(o=>o.value===old))select.value=old;else if(id==='ai-candidate'&&learningState.active)select.value=String(learningState.active);}
  await loadRuns();
 }
@@ -33,7 +33,7 @@ async function renderSamples(){
  if(!result.items.length){empty(target,'暂无需要审核的消息','只收集未直接 @ 你的职责候选消息。自己的消息仅保留为前文，不参与职责审核。');return;}
  const wrap=el('div',undefined,'sample-table-wrap'),table=el('table',undefined,'sample-table'),head=el('thead'),heading=el('tr'),body=el('tbody');
  const caption=el('caption','职责审核消息');caption.className='visually-hidden';table.append(caption);
- for(const [text,cls]of [['消息 / 来源','sample-message-col'],['审核结果','sample-status-col'],['样本用途','sample-split-col'],['操作','sample-action-col']]){const th=el('th',text,cls);th.scope='col';heading.append(th);}
+ for(const [text,cls]of [['消息 / 来源','sample-message-col'],['审核结果','sample-status-col'],['操作','sample-action-col']]){const th=el('th',text,cls);th.scope='col';heading.append(th);}
  head.append(heading);table.append(head,body);wrap.append(table);target.append(wrap);
  for(const saved of result.items){
   const s={...saved,...sampleDrafts[saved.id]},row=el('tr'),message=el('td',undefined,'sample-message-col');
@@ -41,24 +41,23 @@ async function renderSamples(){
   const status=el('td',undefined,'sample-status-col');status.append(el('span',labels[s.label]||'待审核',s.label?'badge':'subtle'));
   if(s.urgent)status.append(el('small','紧急','sample-urgent'));
   if(sampleDrafts[s.id])status.append(el('small','未保存','subtle'));
-  const splitCell=el('td',s.label?(s.split==='evaluation'?'验收':'参考'):'—','sample-split-col');
   const defaultText=saved.label?'编辑':'审核';
   const actions=el('td',undefined,'sample-action-col'),toggle=el('button',expandedSample===s.id?'收回':defaultText,'secondary');
   toggle.dataset.defaultText=defaultText;
-  actions.append(toggle);row.append(message,status,splitCell,actions);
-  const detail=el('tr',undefined,'sample-detail-row'),cell=el('td');cell.colSpan=4;detail.append(cell);detail.id='sample-detail-'+s.id;
+  actions.append(toggle);row.append(message,status,actions);
+  const detail=el('tr',undefined,'sample-detail-row'),cell=el('td');cell.colSpan=3;detail.append(cell);detail.id='sample-detail-'+s.id;
   detail.hidden=expandedSample!==s.id;toggle.setAttribute('aria-controls',detail.id);toggle.setAttribute('aria-expanded',String(!detail.hidden));
   toggle.onclick=()=>{const opening=detail.hidden;body.querySelectorAll('.sample-detail-row').forEach(r=>r.hidden=true);body.querySelectorAll('.sample-action-col button').forEach(b=>{b.setAttribute('aria-expanded','false');if(b.dataset.defaultText)b.textContent=b.dataset.defaultText;});detail.hidden=!opening;expandedSample=opening?s.id:null;toggle.setAttribute('aria-expanded',String(opening));toggle.textContent=opening?'收回':defaultText;};
   cell.append(el('h3',s.title+' · '+s.sender),el('div',s.text,'message'));
-  const form=el('form',undefined,'review-form'),classification=selectOptions([['','选择分类…'],...Object.entries(labels)],s.label||''),service=inputText(s.service,'例如：生产数据库'),reason=inputText(s.rationale,'为什么需要你处理／为什么无关',2000),split=selectOptions([['reference','参考样本'],['evaluation','验收样本']],s.split||'reference'),urgent=el('input');urgent.type='checkbox';urgent.checked=!!s.urgent;classification.required=true;
-  const draft=()=>({label:classification.value,service:service.value,rationale:reason.value,split:split.value,urgent:urgent.checked});
+  const form=el('form',undefined,'review-form'),classification=selectOptions([['','选择分类…'],...Object.entries(labels)],s.label||''),service=inputText(s.service,'例如：生产数据库'),reason=inputText(s.rationale,'为什么需要你处理／为什么无关',2000),urgent=el('input');urgent.type='checkbox';urgent.checked=!!s.urgent;classification.required=true;
+  const draft=()=>({label:classification.value,service:service.value,rationale:reason.value,urgent:urgent.checked});
   form.oninput=()=>{sampleDrafts[s.id]=draft();status.replaceChildren(el('span',labels[classification.value]||'待审核'),el('small','未保存','subtle'));};form.onchange=form.oninput;
-  const urgentLabel=el('label',undefined,'urgent-choice');urgentLabel.append(urgent,document.createTextNode('紧急'));
+  const urgentLabel=el('label',undefined,'urgent-choice');urgentLabel.append(urgent,el('span','紧急'));
   const buttons=el('div',undefined,'actions'),save=el('button','保存审核','primary'),context=el('button','查看前文','secondary');context.type='button';
   context.onclick=()=>action(async()=>{const rows=await api('/api/samples/'+s.id+'/context');let content=cell.querySelector('.context');if(!content){content=el('pre',undefined,'context');cell.append(content);}content.textContent=rows.map(r=>r.sender+'：'+r.text).join('\n');});buttons.append(save,context);
   if(saved.label){const remove=el('button','撤回审核','secondary');remove.type='button';remove.onclick=()=>action(async()=>{await api('/api/learning/samples/'+s.id+'/unreview',{});delete sampleDrafts[s.id];await renderSamples();toast('已从草稿撤回，历史版本保留');});buttons.append(remove);}
   if(saved.from_me==null){const own=el('button','这是我发的','secondary');own.type='button';own.title='旧记录未保存发送身份，标记后移出审核，仍保留为对话前文';own.onclick=()=>action(async()=>{own.disabled=true;try{await api('/api/learning/samples/'+s.id+'/own',{});delete sampleDrafts[s.id];await renderSamples();toast('已移出职责审核，仍保留为前文');}finally{own.disabled=false;}});buttons.append(own);}
-  form.append(field('分类',classification),field('服务／职责',service),field('判断理由',reason),field('样本用途',split),urgentLabel,buttons);
+  form.append(field('分类',classification),field('服务／职责',service),field('判断理由',reason),urgentLabel,buttons);
   form.onsubmit=e=>{e.preventDefault();action(async()=>{save.disabled=true;try{const payload=draft();await api('/api/learning/samples/'+s.id,payload);if(JSON.stringify(sampleDrafts[s.id])===JSON.stringify(payload))delete sampleDrafts[s.id];await renderSamples();toast('审核已保存，已发布版本不受影响');}catch(err){if(err.message&&(err.message.includes('404')||err.message.includes('不再纳入'))){delete sampleDrafts[s.id];toast('该消息已不再纳入职责样本');await renderSamples();}else throw err;}finally{save.disabled=false;}});};
   cell.append(form);body.append(row,detail);
  }

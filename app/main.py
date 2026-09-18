@@ -51,6 +51,7 @@ class GroupSettings(BaseModel):
     revision: int = Field(default=0, ge=0)
     keywords: list[str] = Field(max_length=50)
     selections: dict[str, bool] = Field(default_factory=dict, max_length=10000)
+    mentions_only: dict[str, bool] = Field(default_factory=dict, max_length=10000)
 
 
 class GroupNoticeRead(BaseModel):
@@ -374,12 +375,17 @@ def create_app(config=None, workers=True):
             if body.revision != revision:
                 raise HTTPException(409, '另一台设备已修改设置。请先重置草稿以加载最新设置，再重新勾选。')
             known = {g["id"] for g in store.groups(platform)}
-            if not set(body.selections).issubset(known):
+            if not (set(body.selections) | set(body.mentions_only)).issubset(known):
                 raise HTTPException(409, "部分群组已不存在，请刷新后重试")
             with store.db:
                 store.db.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('group_revision_' + platform, json.dumps(revision + 1)))
                 store.db.execute("INSERT OR REPLACE INTO settings VALUES (?,?)",
                     ("group_hidden_keywords_" + platform, json.dumps(keywords)))
+                for chat_id, mentions_only in body.mentions_only.items():
+                    store.db.execute("UPDATE groups SET mentions_only=? WHERE platform=? AND id=?", (int(mentions_only), platform, chat_id))
+                    if mentions_only:
+                        store.db.execute("""UPDATE alerts SET status='cancelled' WHERE status='pending'
+                            AND message_id IN (SELECT id FROM messages WHERE platform=? AND chat_id=? AND COALESCE(reason,'') <> 'mention')""", (platform, chat_id))
                 for chat_id, enabled in body.selections.items():
                     store.db.execute("UPDATE groups SET enabled=? WHERE platform=? AND id=?", (int(enabled), platform, chat_id))
                     if not enabled:
@@ -458,7 +464,7 @@ def create_app(config=None, workers=True):
     @app.get("/api/samples")
     async def samples():
         return store.rows("""SELECT m.*,g.title FROM messages m JOIN groups g
-          ON g.platform=m.platform AND g.id=m.chat_id WHERE m.platform IN ('telegram','whatsapp') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention'
+          ON g.platform=m.platform AND g.id=m.chat_id WHERE m.platform IN ('telegram','whatsapp') AND COALESCE(m.from_me,0)=0 AND has_review_text(m.text)=1 AND COALESCE(m.reason,'') <> 'mention' AND NOT EXISTS (SELECT 1 FROM groups mg WHERE mg.platform=m.platform AND mg.id=m.chat_id AND mg.mentions_only=1)
           ORDER BY m.id DESC LIMIT 100""")
 
     @app.get("/api/samples/{mid}/context")
@@ -472,7 +478,7 @@ def create_app(config=None, workers=True):
 
     @app.post("/api/samples/{mid}/label")
     async def label(mid: int, body: Label):
-        cur = store.db.execute("UPDATE messages SET label=?,urgent=? WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention'", (body.label, body.urgent, mid))
+        cur = store.db.execute("UPDATE messages SET label=?,urgent=? WHERE id=? AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' AND NOT EXISTS (SELECT 1 FROM groups mg WHERE mg.platform=messages.platform AND mg.id=messages.chat_id AND mg.mentions_only=1)", (body.label, body.urgent, mid))
         store.db.commit()
         if not cur.rowcount:
             raise HTTPException(404)
@@ -480,7 +486,7 @@ def create_app(config=None, workers=True):
 
     @app.get("/api/export")
     async def export():
-        rows = store.rows("SELECT * FROM messages WHERE label IS NOT NULL AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' ORDER BY id")
+        rows = store.rows("SELECT * FROM messages WHERE label IS NOT NULL AND COALESCE(from_me,0)=0 AND has_review_text(text)=1 AND COALESCE(reason,'') <> 'mention' AND NOT EXISTS (SELECT 1 FROM groups mg WHERE mg.platform=messages.platform AND mg.id=messages.chat_id AND mg.mentions_only=1) ORDER BY id")
         return Response("\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
             media_type="application/x-ndjson", headers={"Content-Disposition": 'attachment; filename="labels.jsonl"'})
 
