@@ -66,9 +66,13 @@ class Store:
         self.db.commit()
 
     def sync_groups(self, platform, groups, notify_all=False):
-        before = {g['id'] for g in self.groups(platform)}
+        known = self.rows('SELECT id,available FROM groups WHERE platform=?', (platform,))
+        before = {g['id'] for g in known if g['available']}
+        known_ids = {g['id'] for g in known}
         incoming = {str(g['id']): g for g in groups}
         added = [{'id': k, 'title': g['title']} for k, g in incoming.items() if k not in before]
+        # A missing sync result or a rejoin must not turn a known ID into a new group.
+        new_groups = [{'id': k, 'title': g['title']} for k, g in incoming.items() if k not in known_ids]
         with self.db:
             if before != incoming.keys():
                 revision_key = 'group_revision_' + platform
@@ -78,7 +82,7 @@ class Store:
                 self.db.execute("UPDATE alerts SET status='cancelled' WHERE status='pending' AND message_id IN (SELECT id FROM messages WHERE platform=? AND chat_id=?)", (platform, chat))
             for chat, group in incoming.items():
                 self.db.execute('INSERT INTO groups(platform,id,title,available) VALUES (?,?,?,1) ON CONFLICT(platform,id) DO UPDATE SET title=excluded.title,available=1', (platform, chat, group['title']))
-            noticed = [{'id': k, 'title': g['title']} for k, g in incoming.items()] if notify_all else added
+            noticed = [{'id': k, 'title': g['title']} for k, g in incoming.items()] if notify_all else new_groups
             if noticed:
                 notices = self.get('group_sync_notices') or []
                 sequence = (self.get('group_sync_sequence') or 0) + 1

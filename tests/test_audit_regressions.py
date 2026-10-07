@@ -56,6 +56,36 @@ def test_sync_new_groups_removed_groups_and_rejoin(tmp_path):
         assert [g['id'] for g in s.groups('telegram')]==['2']
         assert s.sync_groups('telegram',groups)==[groups[0]]
         assert not s.selected('telegram','1')
+        assert s.get('group_sync_sequence')==1
+    finally:s.db.close()
+
+
+@pytest.mark.parametrize('platform',['whatsapp','telegram'])
+@pytest.mark.parametrize('missing_all',[False,True])
+def test_known_groups_return_after_restart_without_new_notice(tmp_path,platform,missing_all):
+    path=str(tmp_path/'sync.db')
+    old={'id':'1','title':'old group'}
+    kept={'id':'2','title':'other group'}
+    s=Store(path)
+    try:
+        s.sync_groups(platform,[old,kept])
+        s.set('group_sync_seen',s.get('group_sync_sequence'))
+        s.select(platform,'1',True)
+        s.sync_groups(platform,[] if missing_all else [kept])
+    finally:s.db.close()
+    s=Store(path)
+    try:
+        s.sync_groups(platform,[dict(old,title='renamed old group'),kept])
+        assert len(s.groups(platform))==2
+        assert not s.selected(platform,'1')
+        assert s.pending_group_notices()==[]
+        assert s.get('group_sync_sequence')==1
+        # A truly unseen ID still triggers a notice, even with an existing title.
+        new=dict(old,id='3')
+        s.sync_groups(platform,[old,kept,new])
+        assert s.pending_group_notices()[0]['groups'][0]['id']=='3'
+        assert len(s.pending_group_notices()[0]['groups'])==1
+        assert not s.selected(platform,'3')
     finally:s.db.close()
 
 
