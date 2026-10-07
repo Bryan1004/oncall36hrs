@@ -55,3 +55,9 @@ async def test_notification_link_and_scoped_confirmation(tmp_path):
         for _ in range(2):  # Safe retry; newer messages remain pending.
             assert (await client.post('/confirm', json={'token': token})).status_code == 200
             assert [a['id'] for a in app.state.store.alerts(True)] == [a['id'] for a in before if a['id'] != first[0]['id']]
+        # The following notification has its own capability and confirms the remaining message.
+        remaining_ids = [a['id'] for a in app.state.store.alerts(True)]
+        next_token = sign(config, remaining_ids)
+        assert next_token != token
+        assert (await client.post('/confirm', json={'token': next_token})).status_code == 200
+        assert app.state.store.alerts(True) == []

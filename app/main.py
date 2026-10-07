@@ -25,7 +25,7 @@ from app.config import Config
 from app.confirmation import verify
 from app.group_sync import WhatsAppGroupSync
 from app.store import Store
-from app.notify import Dispatcher, Notifier
+from app.notify import DeliveryError, Dispatcher, Notifier
 from app.quiet_hours import QuietHours, quiet_active
 from app.telegram import TelegramMonitor, LoginError
 
@@ -107,6 +107,7 @@ class Event(BaseModel):
 
 class Heartbeat(BaseModel):
     state: Literal["connecting", "needs_scan", "connected", "logged_out", "reconnecting", "error", "message_error", "disconnected", "qr_expired"]
+    incident: dict[str, str] | None = None
 
 
 def create_app(config=None, workers=True):
@@ -514,6 +515,25 @@ def create_app(config=None, workers=True):
     async def wa_heartbeat(body: Heartbeat):
         store.connector("whatsapp", body.state)
         store.set("whatsapp_disconnected", body.state == "disconnected")
+        incident = body.incident
+        if incident and not store.get("whatsapp_disconnected"):
+            incident_id = incident.get("id", "")
+            incident_state = incident.get("state", "error")
+            if (len(incident_id) == 36 and incident_state == body.state
+                    and incident_state in {"error", "logged_out", "qr_expired"}
+                    and store.get("wa_disconnect_alert_sent") != incident_id):
+                if store.get("wa_disconnect_alert_pending") != incident_id:
+                    store.set("wa_disconnect_alert_pending", incident_id)
+                    store.set("wa_disconnect_alert_next", 0)
+                if config.delivery_enabled and time.time() >= (store.get("wa_disconnect_alert_next") or 0):
+                    store.set("wa_disconnect_alert_next", time.time() + 60)
+                    try:
+                        result = await asyncio.wait_for(notifier.send_connection_alert(incident_state), timeout=8)
+                        store.set("wa_disconnect_alert_sent", incident_id)
+                        store.delivery("connection", [], result, "WhatsApp 断线提醒")
+                    except Exception as exc:
+                        detail = str(exc) if isinstance(exc, DeliveryError) else type(exc).__name__
+                        store.delivery("connection", [], "failed", detail)
         return {"ok": True}
 
     @app.post("/internal/wa/events")

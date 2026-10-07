@@ -1,5 +1,6 @@
-const token = location.hash.slice(1);
-history.replaceState(null, '', location.pathname);
+let token = '';
+let activeRequest = null;
+const previewMode = location.protocol === 'file:' || new URLSearchParams(location.search).has('preview');
 
 const statusEl = document.getElementById('status');
 const detailEl = document.getElementById('detail');
@@ -20,6 +21,7 @@ function setViewState(type, message, subtext) {
   [iconLoading, iconSuccess, iconError, iconWarn].forEach(el => {
     if (el) el.hidden = true;
   });
+  document.querySelector('.card')?.setAttribute('aria-busy', String(type === 'loading'));
   body.className = 'state-' + (type === 'notoken' ? 'warn' : type);
   if (timeBubble) timeBubble.classList.remove('show');
 
@@ -69,7 +71,7 @@ document.querySelectorAll('#preview-bar button').forEach(btn => {
 });
 
 // 本地 file:// 预览或 ?preview=1 时显示预览切换栏
-if (previewBar && (location.protocol === 'file:' || new URLSearchParams(location.search).has('preview'))) {
+if (previewBar && previewMode) {
   previewBar.hidden = false;
 }
 
@@ -79,17 +81,22 @@ async function confirmNotification() {
     setViewState('notoken', '没有确认凭证', '请从最新的 Bark 警报通知打开，或直接进入面板查看和确认。');
     return;
   }
-  
+  if (activeRequest?.token === token) return;
+  // Each click still confirms its own messages; only the latest request may update the page.
+  const request = {token};
+  activeRequest = request;
+
   setViewState('loading', '正在确认收到…', '连接服务器中，即将标记本轮警报为已处理…');
 
   try {
     const response = await fetch('/confirm', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-Requested-With': 'oncall'},
-      body: JSON.stringify({token}),
+      body: JSON.stringify({token: request.token}),
       signal: AbortSignal.timeout(15000)
     });
     const result = await response.json();
+    if (activeRequest !== request) return;
     if (!response.ok) {
       const msg = typeof result.detail === 'string' ? result.detail : '服务器未能完成确认，请重试。';
       setViewState('error', '未能确认', msg);
@@ -98,9 +105,12 @@ async function confirmNotification() {
     }
     setViewState('success', '已确认收到', '本轮消息已确认，面板会自动更新；这些消息不会再触发后续提醒。');
   } catch {
+    if (activeRequest !== request) return;
     const errMsg = '无法连接服务器。请检查网络或连接 Tailscale 后重试。';
     setViewState('error', '尚未确认成功', errMsg);
     if (retryBtn) retryBtn.hidden = false;
+  } finally {
+    if (activeRequest === request) activeRequest = null;
   }
 }
 
@@ -108,9 +118,31 @@ if (retryBtn) {
   retryBtn.addEventListener('click', confirmNotification);
 }
 
-// 仅在实际携带 token 时触发请求；本地预览模式默认展示成功状态
-if (token) {
+// Browsers can reuse /confirm by changing only its fragment, without reloading the script.
+function consumeNotificationLink() {
+  const nextToken = location.hash.slice(1);
+  if (!nextToken) return false;
+  token = nextToken;
+  history.replaceState(history.state, '', location.pathname + location.search);
   confirmNotification();
-} else {
-  setViewState('success');
+  return true;
+}
+
+window.addEventListener('hashchange', consumeNotificationLink);
+window.addEventListener('pageshow', consumeNotificationLink);
+window.addEventListener('focus', consumeNotificationLink);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') consumeNotificationLink();
+});
+
+if (!consumeNotificationLink()) {
+  if (previewMode) {
+    // Simulated success is restricted to the explicit design preview.
+    setViewState('loading');
+    setTimeout(() => {
+      if (!token) setViewState('success');
+    }, 5000);
+  } else {
+    setViewState('notoken');
+  }
 }

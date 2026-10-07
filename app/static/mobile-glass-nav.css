@@ -91,6 +91,8 @@
    ========================================================= */
 @media (max-width: 760px) {
   aside nav.phone-glass-nav {
+    position: fixed;
+    z-index: 99;
     --glass-height: clamp(64px, 16.4vw, 70px);
     --glass-gap: clamp(12px, 4vw, 18px);
     inset: auto max(var(--glass-gap), env(safe-area-inset-right, 0px)) max(8px, calc(env(safe-area-inset-bottom, 0px) - 10px)) max(var(--glass-gap), env(safe-area-inset-left, 0px));

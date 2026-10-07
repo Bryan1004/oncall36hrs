@@ -156,6 +156,21 @@ async def test_dry_run_does_not_access_network():
         assert await Notifier(Config(delivery_enabled=False), client).send("home", []) == "simulated"
 
 
+@pytest.mark.asyncio
+async def test_connection_alert_is_one_push_without_call_or_chat_content():
+    requests = []
+    def transport(request):
+        requests.append(request)
+        return httpx.Response(200, json={"code": 200})
+    cfg = Config(delivery_enabled=True, bark_away_device_key="test", public_url="https://panel.example")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+        assert await Notifier(cfg, client).send_connection_alert("error") == "accepted"
+    payload = requests[0].content.decode()
+    assert "WhatsApp 连接已断开" in payload
+    assert '"level":"active"' in payload
+    assert '"call"' not in payload and '"retry"' not in payload
+
+
 def test_retention_preserves_pending_and_labels(store):
     now = time.time()
     mid = store.ingest(event(timestamp=now-30*86400))

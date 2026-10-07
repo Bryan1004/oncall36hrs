@@ -20,6 +20,29 @@ class Notifier:
         configured = self.config.bark_home_device_key if mode == "home" else self.config.bark_away_device_key or self.config.bark_device_key
         return stored or configured
 
+    async def send_connection_alert(self, state):
+        """One push for a stopped WhatsApp connection; never a repeating work call."""
+        if not self.config.delivery_enabled:
+            return "simulated"
+        key = self.device_key("away") or self.device_key("home")
+        if not key:
+            raise DeliveryError("请先配置 Bark Device Key，才能接收 WhatsApp 断线提醒")
+        detail = "登录会话已退出，请在面板重新扫码。" if state == "logged_out" else \
+                 "二维码已失效，请在面板重新连接。" if state == "qr_expired" else \
+                 "连接已中断，已停止自动重试。请在面板检查并手动重连。"
+        payload = {"device_key": key, "title": "WhatsApp 连接已断开", "body": detail,
+                   "url": self.config.public_url, "group": "oncall36-connection",
+                   "isArchive": "0", "level": "active", "sound": "minuet"}
+        response = await self.client.post(self.config.bark_server + "/push", json=payload)
+        response.raise_for_status()
+        try:
+            result = response.json()
+        except ValueError:
+            raise DeliveryError("Bark 返回了无效响应") from None
+        if not isinstance(result, dict) or result.get("code") != 200:
+            raise DeliveryError("Bark 未接受断线提醒")
+        return "accepted"
+
     @staticmethod
     def message_body(alerts):
         groups = {}

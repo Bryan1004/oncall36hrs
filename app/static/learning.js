@@ -1,10 +1,24 @@
-let sampleOffset=0,learningState,learningLoaded=false,sampleRequest=0;
+let sampleOffset=0,learningState,learningLoaded=false,learningLoadPromise=null,sampleRequest=0,expandedSample=null,sampleCounts={};
 const sampleDrafts={};
 const labels={action:'需要我处理',inform:'只需知会',irrelevant:'与我无关',unclear:'上下文不足'};
 function field(label,input){const wrap=el('label',label);wrap.append(input);return wrap;}
 function inputText(value,placeholder,max=200){const input=el('input');input.value=value||'';input.placeholder=placeholder;input.maxLength=max;return input;}
 function selectOptions(options,value){const s=el('select');for(const [v,t]of options){const o=el('option',t);o.value=v;s.append(o);}s.value=value;return s;}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 async function loadLearning(){
+ const finish=loadingUI.begin('[data-load-group="learning"]');
+ try{
+  await loadLearningData();
+  finish();
+ }catch(error){finish(error,loadLearning);throw error;}
+}
+function ensureLearningLoaded(){
+ if(learningLoaded)return Promise.resolve();
+ if(!learningLoadPromise)learningLoadPromise=loadLearning().finally(()=>{learningLoadPromise=null;});
+ return learningLoadPromise;
+}
+async function loadLearningData(){
  learningState=await api('/api/learning');
  if(!learningLoaded){$('#responsibility-rules').value=learningState.rules;const cfg=await api('/api/ai');$('#ai-base').value=cfg.base_url;$('#ai-model').value=cfg.model;$('#ai-config-status').textContent=cfg.configured?'密钥已配置':'尚未配置';learningLoaded=true;}
  $('#learning-count').textContent=`已审核 ${learningState.reviewed} 条 · 发布时自动分配参考与测试样本`;
@@ -14,20 +28,52 @@ async function loadLearning(){
  if(v.retired)versionLabel+=' · 清理后无可用样本';
  row.append(el('strong',versionLabel),el('p',`${v.count} 条（模型测试 ${v.evaluation_count}） · 新增 ${v.added} / 修改 ${v.changed} / 移除 ${v.removed}`,'subtle'));if(!v.evaluation_count)row.append(el('p','暂无独立测试样本，请审核其他群的消息后发布新版本。','subtle'));if(v.note)row.append(el('p',v.note,'subtle'));const show=el('button','查看快照','secondary'),activate=el('button','默认试判','secondary');
  if(v.superseded_by||v.retired)activate.disabled=true;
- show.onclick=()=>action(async()=>{const data=await api('/api/learning/versions/'+v.id);const detail=$('#version-detail');detail.hidden=false;detail.replaceChildren(el('h2','V'+v.id+' · 冻结快照'),el('p',data.rules,'message'));for(const s of data.samples){const box=el('details');box.append(el('summary',`${s.title} · ${labels[s.label]} · ${s.split==='evaluation'?'模型测试':'参考案例'}`),el('p',s.text,'message'),el('p',s.rationale||'未填写判断理由','subtle'),el('pre',s.context.map(c=>c.sender+'：'+c.text).join('\n'),'context'));detail.append(box);}});activate.onclick=()=>action(async()=>{await api('/api/learning/versions/'+v.id+'/activate',{});await loadLearning();$('#ai-candidate').value=String(v.id);toast('默认试判版本已切换；不启用响铃');});row.append(show,activate);list.append(row);}
+ show.onclick=()=>action(async()=>{const detail=$('#version-detail');detail.hidden=false;const finish=loadingUI.begin(detail);try{const data=await api('/api/learning/versions/'+v.id);finish();detail.replaceChildren(el('h2','V'+v.id+' · 冻结快照'),el('p',data.rules,'message'));for(const s of data.samples){const box=el('details');box.append(el('summary',`${s.title} · ${labels[s.label]} · ${s.split==='evaluation'?'模型测试':'参考案例'}`),el('p',s.text,'message'),el('p',s.rationale||'未填写判断理由','subtle'),el('pre',s.context.map(c=>c.sender+'：'+c.text).join('\n'),'context'));detail.append(box);}}catch(error){finish(error,()=>show.click());throw error;}});activate.onclick=()=>action(async()=>{await api('/api/learning/versions/'+v.id+'/activate',{});await loadLearning();$('#ai-candidate').value=String(v.id);toast('默认试判版本已切换；不启用响铃');});row.append(show,activate);list.append(row);}
  for(const id of ['ai-candidate','ai-baseline']){const select=$('#'+id),old=select.value;select.replaceChildren();if(id==='ai-baseline'){const option=el('option','不对比');option.value='';select.append(option);}for(const v of learningState.versions){if(v.superseded_by||v.retired)continue;const o=el('option','V'+v.id);o.value=v.id;select.append(o);}if([...select.options].some(o=>o.value===old))select.value=old;else if(id==='ai-candidate'&&learningState.active)select.value=String(learningState.active);}
  await loadRuns();
 }
-let expandedSample=null;
+const sampleSkeletonRow='<tr class="skeleton-sample-row"><td class="sample-message-col"><div class="skeleton-source"></div><div class="skeleton-meta"></div><div class="skeleton-preview-lines"><div class="skeleton-line-1"></div><div class="skeleton-line-2"></div></div></td><td class="sample-status-col"><div class="skeleton-badge-pill"></div></td><td class="sample-action-col"><div class="skeleton-btn-pill"></div></td></tr>';
+function renderSampleSkeleton(target,rowCount=4){target.innerHTML='<div class="sample-table-wrap"><table class="sample-table"><caption class="visually-hidden">职责审核消息</caption><thead><tr><th scope="col" class="sample-message-col">消息 / 来源</th><th scope="col" class="sample-status-col">审核结果</th><th scope="col" class="sample-action-col">操作</th></tr></thead><tbody>'+sampleSkeletonRow.repeat(Math.max(1,rowCount))+'</tbody></table></div>';}
+function syncSampleTabs(platform){
+ document.querySelectorAll('[data-sample-platform]').forEach(b=>{const active=b.dataset.samplePlatform===platform;b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1;});
+}
 async function renderSamples(){
  const request=++sampleRequest,platform=samplePlatform,offset=sampleOffset;
- await loadLearning();if(request!==sampleRequest)return;
- const result=await api('/api/learning/samples?platform='+platform+'&offset='+offset);
- if(request!==sampleRequest||platform!==samplePlatform||offset!==sampleOffset)return;
- if(offset>0&&offset>=result.total){sampleOffset=Math.max(0,Math.floor((result.total-1)/50)*50);return renderSamples();}
+ const samples=$('#samples'),initial=samples.dataset.loaded!=='true';
+ syncSampleTabs(platform);
+ const knownTotal=sampleCounts[platform];
+ const skeletonRows=Number.isFinite(knownTotal)?Math.max(1,Math.min(50,knownTotal-offset)):samples.querySelectorAll('tbody>tr:not(.sample-detail-row)').length||4;
+ renderSampleSkeleton(samples,skeletonRows);
+ const finishSamples=loadingUI.begin('#samples');
+ $('#samples-page').dataset.loading='true';
+ if(initial)$('#samples-page').textContent='';
+ try{
+  await nextPaint();
+  const result=await api('/api/learning/samples?platform='+platform+'&offset='+offset);
+  if(request!==sampleRequest||platform!==samplePlatform||offset!==sampleOffset){
+   finishSamples();
+   $('#samples-page').dataset.loading='false';
+   return;
+  }
+  if(offset>0&&offset>=result.total){
+   sampleOffset=Math.max(0,Math.floor((result.total-1)/50)*50);
+   finishSamples();
+   return renderSamples();
+  }
+  finishSamples();
+  renderSampleList(result, platform, offset);
+ }catch(error){
+  $('#samples-page').dataset.loading='false';
+  finishSamples(error,renderSamples);
+  throw error;
+ }
+}
+function renderSampleList(result, platform, offset){
+ $('#samples-page').dataset.loading='false';
  const target=$('#samples');target.replaceChildren();
+ sampleCounts={...sampleCounts,...result.counts};
  for(const [p,id]of [['whatsapp','ws'],['telegram','tg']])$('#'+id+'-sample-count').textContent=result.counts?.[p]||0;
- document.querySelectorAll('[data-sample-platform]').forEach(b=>{const active=b.dataset.samplePlatform===platform;b.setAttribute('aria-selected',String(active));b.tabIndex=active?0:-1;});
+ syncSampleTabs(platform);
  $('#samples-page').textContent=`${result.total?offset+1:0}–${Math.min(offset+50,result.total)} / ${result.total}`;
  $('#samples-prev').disabled=offset===0;$('#samples-next').disabled=offset+50>=result.total;
  if(!result.items.length){empty(target,'暂无需要审核的消息','只收集未直接 @ 你的职责候选消息。自己的消息仅保留为前文，不参与职责审核。');return;}
@@ -38,31 +84,32 @@ async function renderSamples(){
  for(const saved of result.items){
   const s={...saved,...sampleDrafts[saved.id]},row=el('tr'),message=el('td',undefined,'sample-message-col');
   message.append(el('div',s.title,'sample-source'),el('div',`${s.sender} · ${date(s.created)}`,'meta'),el('div',s.text,'sample-preview'));
-  const status=el('td',undefined,'sample-status-col');status.append(el('span',labels[s.label]||'待审核',s.label?'badge':'subtle'));
+  const status=el('td',undefined,'sample-status-col');status.append(el('span',labels[s.label]||'待审核',s.label?'badge':'badge badge-gray'));
   if(s.urgent)status.append(el('small','紧急','sample-urgent'));
   if(sampleDrafts[s.id])status.append(el('small','未保存','subtle'));
   const defaultText=saved.label?'编辑':'审核';
   const actions=el('td',undefined,'sample-action-col'),toggle=el('button',expandedSample===s.id?'收回':defaultText,'secondary');
   toggle.dataset.defaultText=defaultText;
   actions.append(toggle);row.append(message,status,actions);
-  const detail=el('tr',undefined,'sample-detail-row'),cell=el('td');cell.colSpan=3;detail.append(cell);detail.id='sample-detail-'+s.id;
-  detail.hidden=expandedSample!==s.id;toggle.setAttribute('aria-controls',detail.id);toggle.setAttribute('aria-expanded',String(!detail.hidden));
-  toggle.onclick=()=>{const opening=detail.hidden;body.querySelectorAll('.sample-detail-row').forEach(r=>r.hidden=true);body.querySelectorAll('.sample-action-col button').forEach(b=>{b.setAttribute('aria-expanded','false');if(b.dataset.defaultText)b.textContent=b.dataset.defaultText;});detail.hidden=!opening;expandedSample=opening?s.id:null;toggle.setAttribute('aria-expanded',String(opening));toggle.textContent=opening?'收回':defaultText;};
-  cell.append(el('h3',s.title+' · '+s.sender),el('div',s.text,'message'));
+  const detail=el('tr',undefined,'sample-detail-row'),cell=el('td'),motion=el('div',undefined,'sample-detail-motion'),clip=el('div',undefined,'sample-detail-clip');cell.colSpan=3;motion.append(clip);cell.append(motion);detail.append(cell);detail.id='sample-detail-'+s.id;
+  const initiallyOpen=expandedSample===s.id;detail.classList.toggle('is-open',initiallyOpen);detail.setAttribute('aria-hidden',String(!initiallyOpen));detail.inert=!initiallyOpen;toggle.setAttribute('aria-controls',detail.id);toggle.setAttribute('aria-expanded',String(initiallyOpen));
+  if(initiallyOpen)row.classList.add('sample-row-expanded');
+  toggle.onclick=()=>{const opening=!detail.classList.contains('is-open');body.querySelectorAll('.sample-detail-row.is-open').forEach(r=>{r.classList.remove('is-open');r.setAttribute('aria-hidden','true');r.inert=true;});body.querySelectorAll('tr.sample-row-expanded').forEach(r=>r.classList.remove('sample-row-expanded'));body.querySelectorAll('.sample-action-col button').forEach(b=>{b.setAttribute('aria-expanded','false');if(b.dataset.defaultText)b.textContent=b.dataset.defaultText;});detail.classList.toggle('is-open',opening);detail.setAttribute('aria-hidden',String(!opening));detail.inert=!opening;expandedSample=opening?s.id:null;if(opening)row.classList.add('sample-row-expanded');toggle.setAttribute('aria-expanded',String(opening));toggle.textContent=opening?'收回':defaultText;};
+  const drawer=el('div',undefined,'sample-nested-drawer');
   const form=el('form',undefined,'review-form'),classification=selectOptions([['','选择分类…'],...Object.entries(labels)],s.label||''),service=inputText(s.service,'例如：生产数据库'),reason=inputText(s.rationale,'为什么需要你处理／为什么无关',2000),urgent=el('input');urgent.type='checkbox';urgent.checked=!!s.urgent;classification.required=true;
   const draft=()=>({label:classification.value,service:service.value,rationale:reason.value,urgent:urgent.checked});
-  form.oninput=()=>{sampleDrafts[s.id]=draft();status.replaceChildren(el('span',labels[classification.value]||'待审核'),el('small','未保存','subtle'));};form.onchange=form.oninput;
+  form.oninput=()=>{sampleDrafts[s.id]=draft();status.replaceChildren(el('span',labels[classification.value]||'待审核',classification.value?'badge':'badge badge-gray'));if(urgent.checked)status.append(el('small','紧急','sample-urgent'));status.append(el('small','未保存','subtle'));};form.onchange=form.oninput;
   const urgentLabel=el('label',undefined,'urgent-choice');urgentLabel.append(urgent,el('span','紧急'));
   const buttons=el('div',undefined,'actions'),save=el('button','保存审核','primary'),context=el('button','查看前文','secondary');context.type='button';
-  context.onclick=()=>action(async()=>{const rows=await api('/api/samples/'+s.id+'/context');let content=cell.querySelector('.context');if(!content){content=el('pre',undefined,'context');cell.append(content);}content.textContent=rows.map(r=>r.sender+'：'+r.text).join('\n');});buttons.append(save,context);
+  context.onclick=()=>action(async()=>{const rows=await api('/api/samples/'+s.id+'/context');let content=drawer.querySelector('.context');if(!content){content=el('pre',undefined,'context');drawer.append(content);}content.textContent=rows.map(r=>r.sender+'：'+r.text).join('\n');});buttons.append(save,context);
   if(saved.label){const remove=el('button','撤回审核','secondary');remove.type='button';remove.onclick=()=>action(async()=>{await api('/api/learning/samples/'+s.id+'/unreview',{});delete sampleDrafts[s.id];await renderSamples();toast('已从草稿撤回，历史版本保留');});buttons.append(remove);}
   if(saved.from_me==null){const own=el('button','这是我发的','secondary');own.type='button';own.title='旧记录未保存发送身份，标记后移出审核，仍保留为对话前文';own.onclick=()=>action(async()=>{own.disabled=true;try{await api('/api/learning/samples/'+s.id+'/own',{});delete sampleDrafts[s.id];await renderSamples();toast('已移出职责审核，仍保留为前文');}finally{own.disabled=false;}});buttons.append(own);}
   form.append(field('分类',classification),field('服务／职责',service),field('判断理由',reason),urgentLabel,buttons);
   form.onsubmit=e=>{e.preventDefault();action(async()=>{save.disabled=true;try{const payload=draft();await api('/api/learning/samples/'+s.id,payload);if(JSON.stringify(sampleDrafts[s.id])===JSON.stringify(payload))delete sampleDrafts[s.id];await renderSamples();toast('审核已保存，已发布版本不受影响');}catch(err){if(err.message&&(err.message.includes('404')||err.message.includes('不再纳入'))){delete sampleDrafts[s.id];toast('该消息已不再纳入职责样本');await renderSamples();}else throw err;}finally{save.disabled=false;}});};
-  cell.append(form);body.append(row,detail);
+  drawer.append(form);clip.append(drawer);body.append(row,detail);
  }
 }
-$('#samples-prev').onclick=()=>action(async()=>{sampleOffset=Math.max(0,sampleOffset-50);await renderSamples();});$('#samples-next').onclick=()=>action(async()=>{sampleOffset+=50;await renderSamples();});
+$('#samples-prev').onclick=()=>{sampleOffset=Math.max(0,sampleOffset-50);renderSamples().catch(showError);};$('#samples-next').onclick=()=>{sampleOffset+=50;renderSamples().catch(showError);};
 $('#rules-form').onsubmit=e=>{e.preventDefault();action(async()=>{const rules=$('#responsibility-rules').value;await api('/api/learning/rules',{rules});learningState.rules=rules;toast('职责草稿已保存');});};
 $('#publish-form').onsubmit=e=>{e.preventDefault();action(async()=>{if(Object.keys(sampleDrafts).length||$('#responsibility-rules').value!==learningState.rules)throw Error('还有未保存的职责或审核草稿，请先保存再发布版本。');const b=$('#publish-form button');b.disabled=true;try{const r=await api('/api/learning/publish',{note:$('#version-note').value});$('#version-note').value='';await loadLearning();toast('已发布 V'+r.id+'，这是案例版本，不是模型微调');}finally{b.disabled=false;}});};
 $('#ai-config-form').onsubmit=e=>{e.preventDefault();action(async()=>{const key=$('#ai-key').value;$('#ai-key').value='';await api('/api/ai/config',{base_url:$('#ai-base').value,model:$('#ai-model').value,api_key:key});$('#ai-config-status').textContent='配置已保存';});};
@@ -70,6 +117,10 @@ $('#ai-eval-form').onsubmit=e=>{e.preventDefault();action(async()=>{const b=$('#
 let selectedRun=null;
 const runNames={queued:'排队中',running:'试判中',complete:'已完成',failed:'失败',interrupted:'已中断',cancel_requested:'等待当前请求结束后取消',cancelled:'已取消'};
 async function showRun(id){
+ const finish=loadingUI.begin('#ai-result',{initial:true});
+ try{await renderRun(id);finish();}catch(error){finish(error,()=>showRun(id));throw error;}
+}
+async function renderRun(id){
  const run=await api('/api/ai/runs/'+id);if(selectedRun!==id)return;
  const panel=$('#ai-result');panel.replaceChildren(el('h3','试判 #'+id+' · '+(runNames[run.status]||run.status)));
  for(const m of run.metrics)panel.append(el('p',`V${m.version_id}：已判 ${m.evaluated} · 分类正确 ${m.correct} · 误报 ${m.false_positive} · 漏报 ${m.missed} · 紧急程度正确 ${m.urgency_correct}`));
@@ -77,6 +128,10 @@ async function showRun(id){
  for(const item of run.result.items||[]){const box=el('article',undefined,'sample');box.append(el('strong',`V${item.version_id} · 人工：${labels[item.expected.label]} / AI：${labels[item.prediction.label]}`),el('p',item.text,'message'),el('p',item.prediction.reason,'subtle'),el('p','使用参考案例：'+((item.references||[]).map(r=>'#'+r.id+' '+r.title).join('、')||'无'),'subtle'));panel.append(box);}
 }
 async function loadRuns(){
+ const finish=loadingUI.begin('#ai-runs',{initial:true});
+ try{await renderRuns();finish();}catch(error){finish(error,loadRuns);throw error;}
+}
+async function renderRuns(){
  const data=await api('/api/ai'),target=$('#ai-runs');target.replaceChildren();
  $('#ai-start').disabled=data.runs.some(r=>['queued','running','cancel_requested'].includes(r.status));
  for(const r of data.runs){const cfg=JSON.parse(r.config),row=el('div',undefined,'version-row'),button=el('button','查看结果','secondary');
@@ -87,4 +142,4 @@ async function loadRuns(){
  if(selectedRun!==null)await showRun(selectedRun);
 }
 setInterval(()=>{if(page==='samples'&&learningLoaded)loadRuns().catch(showError);},5000);
-if(typeof page!=='undefined'&&page==='samples')renderSamples().catch(showError);
+if(typeof page!=='undefined'&&page==='samples')Promise.all([ensureLearningLoaded(),renderSamples()]).catch(showError);

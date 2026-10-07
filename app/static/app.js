@@ -1,5 +1,6 @@
 const $ = selector => document.querySelector(selector);
 const el = (tag, text, cls) => {const n=document.createElement(tag); if(text!==undefined)n.textContent=text; if(cls)n.className=cls; return n;};
+const nextPaint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
 let groupPlatform=(()=>{try{const v=localStorage.getItem('group-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),groupSaving=false,samplePlatform=(()=>{try{const v=localStorage.getItem('sample-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),cachedSamples=[],connPlatform=(()=>{try{const v=localStorage.getItem('conn-platform');if(v==='whatsapp'||v==='telegram')return v;}catch{}return 'whatsapp';})(),lastTgLogin=null,groupStatusFilter=(()=>{try{const v=localStorage.getItem('group-status-filter');if(v==='monitored'||v==='all')return v;}catch{}return 'all';})();
 const groupDrafts={};
 function groupDraft(platform){const current=state.group_settings?.[platform]||{};return groupDrafts[platform]||(groupDrafts[platform]={keywords:[...(current.keywords||[])],baseKeywords:[...(current.keywords||[])],revision:current.revision||0,selections:{},mentions_only:{}});}
@@ -10,23 +11,25 @@ const names={home:'在家长响铃',away:'外出通知',paused:'暂停提醒'};
 const FALLBACK_QR='data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 155 155" width="155" height="155"><rect width="155" height="155" fill="%23fff"/><path fill="%23222" d="M15 15h40v40H15zm6 6v28h28V21zm5 5h18v18H26zm74-11h40v40h-40zm6 6v28h28V21zm5 5h18v18h-18zM15 100h40v40H15zm6 6v28h28v-28zm5 5h18v18H26zm40-85h10v10H66zm18 0h10v10H84zm-18 18h10v10H66zm18 0h10v10H84zm-18 18h10v10H66zm18 0h10v10H84zm22 0h10v10h-10zm0 18h10v10h-10zm-40 0h10v10H66zm18 0h10v10H84zm-68 18h10v10H16zm18 0h10v10H34zm32 0h10v10H66zm18 0h10v10H84zm22 0h10v10h-10zm18 0h10v10h-10zm-76 18h10v10H34zm18 0h10v10H52zm32 0h10v10H84zm38 0h10v10h-10zm-88 18h10v10H34zm32 0h10v10H66zm38 0h10v10h-10zm18 0h10v10h-10zm-70 18h10v10H52zm18 0h10v10H70zm34 0h10v10h-10zm18 0h10v10h-10z"/></svg>';
 const statusNames={connected:'已连接',connecting:'连接中',reconnecting:'连接中',needs_scan:'等待扫码',logged_out:'已退出',not_configured:'未配置',needs_login:'等待登录',waiting:'等待连接',offline:'连接中断',disconnected:'已断开',qr_expired:'二维码已过期',error:'连接异常',message_error:'消息处理异常'};
 const date=t=>new Date(t*1000).toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
-async function api(route,data){const r=await fetch(route,{method:data===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-Requested-With':'oncall'},...(data!==undefined?{body:JSON.stringify(data)}:{})});let result;try{result=await r.json();}catch{throw Error('服务器响应异常');}if(!r.ok){const error=Error(result.retry_after?`请等待 ${result.retry_after} 秒后重试`:typeof result.detail==='string'?result.detail:`请求失败 (${r.status})`);error.login=result.login;throw error;}return result;}
+try{window.__API_DELAY__=Number(sessionStorage.getItem('oncall-api-delay'))||0;}catch{window.__API_DELAY__=0;}
+async function api(route,data){if(window.__API_DELAY__)await new Promise(r=>setTimeout(r,window.__API_DELAY__));const r=await fetch(route,{method:data===undefined?'GET':'POST',headers:{'Content-Type':'application/json','X-Requested-With':'oncall'},...(data!==undefined?{body:JSON.stringify(data)}:{})});let result;try{result=await r.json();}catch{throw Error('服务器响应异常');}if(!r.ok){const error=Error(result.retry_after?`请等待 ${result.retry_after} 秒后重试`:typeof result.detail==='string'?result.detail:`请求失败 (${r.status})`);error.login=result.login;throw error;}return result;}
+window.setApiDelay=(ms=3000)=>{window.__API_DELAY__=Math.max(0,Number(ms)||0);try{sessionStorage.setItem('oncall-api-delay',String(window.__API_DELAY__));}catch{}console.log(`[OnCall] 数据加载延迟已设为: ${window.__API_DELAY__}ms${window.__API_DELAY__?' (刷新当前标签页仍会保留；输入 setApiDelay(0) 可恢复即时响应)':' (已恢复即时响应)'}`);return `当前延迟: ${window.__API_DELAY__}ms`;};
 function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#toast').hidden=true,3500);}
 function showError(error){$('#error').textContent=error.message;$('#error').hidden=false;}
 async function action(fn){try{$('#error').hidden=true;await fn();await refresh();}catch(error){showError(error);}}
-function empty(target,title,desc){target.replaceChildren();const box=el('div',undefined,'empty');box.append(el('div','◌','symbol'),el('h3',title),el('p',desc));target.append(box);}
+function empty(target,title,desc){target.replaceChildren();const box=el('div',undefined,'empty'),ring=el('div',undefined,'check-ring');ring.innerHTML='<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 8.5L6.5 11.5L12.5 5"/></svg>';box.append(ring,el('h3',title),el('p',desc));target.append(box);}
 function alertCard(a,pending){const card=el('article',undefined,'alert-card'), icon=el('div',a.platform==='whatsapp'?'WA':a.platform==='telegram'?'TG':'◎','platform-icon'), content=el('div',undefined,'alert-content'),meta=el('div',undefined,'meta');meta.append(el('strong',a.title),el('span',a.reason==='reply'?'回复了你':'提到了你'),el('span',date(a.created)));content.append(meta,el('div',a.text,'message'),el('div',a.sender,'subtle'));card.append(icon,content);if(pending){const b=el('button','✓ 已收到','secondary');b.onclick=()=>action(async()=>{b.disabled=true;await api('/api/ack',{ids:[a.id]});toast('已确认，停止这条提醒');});card.append(b);}return card;}
 function render(){
  const pending=state.alerts.filter(a=>a.status==='pending');
  renderBadge();
  document.querySelectorAll('[data-mode]').forEach(b=>{b.classList.toggle('selected',b.dataset.mode===state.mode);b.setAttribute('aria-pressed',String(b.dataset.mode===state.mode));});
- $('#mode-note').textContent=state.mode==='paused'?'已暂停发送（正常收信），恢复后继续提醒。':state.mode==='home'?`每 ${state.call_interval/60} 分钟 Bark 长响铃，直到确认或暂停。`:`每 ${state.push_interval/60} 分钟通知一次，手表与手机重复提醒。`;
+ $('#mode-note').textContent=state.mode==='paused'?'已暂停发送（正常收信），恢复后继续提醒':state.mode==='home'?`每 ${state.call_interval/60} 分钟 Bark 长响铃，直到确认或暂停`:`每 ${state.push_interval/60} 分钟通知一次，手表与手机重复提醒`;
  $('#pending-count').textContent=pending.length;$('#pending-chip').textContent=pending.length;for(const [platform,id] of [['whatsapp','ws'],['telegram','tg']])$('#'+id+'-group-count').textContent=state.groups.filter(g=>g.enabled&&g.platform===platform).length;
  const online=Object.values(state.connections).filter(c=>c.state==='connected').length;$('#connection-count').textContent=online+' / 2';$('#connection-note').textContent=online===2?'两个平台均在线':'请查看连接与设置';
  $('#demo').hidden=state.delivery_enabled;$('#ack-all').disabled=!pending.length;
- const inbox=$('#alerts');inbox.replaceChildren();if(!pending.length)empty(inbox,'现在，没有需要处理的提醒','连接账号并选择群组，或添加一条演练消息。');else pending.forEach(a=>inbox.append(alertCard(a,true)));
+ const inbox=$('#alerts');inbox.replaceChildren();if(!pending.length)empty(inbox,'现在，没有需要处理的提醒','连接账号并选择群组，或添加一条演练消息');else pending.forEach(a=>inbox.append(alertCard(a,true)));
  const history=$('#history');history.replaceChildren();state.alerts.filter(a=>a.status!=='pending').slice(0,20).forEach(a=>history.append(alertCard(a,false)));
- const logs=$('#deliveries');logs.replaceChildren();if(!state.deliveries.length){logs.append(el('div','还没有发送记录。','log'));}for(const d of state.deliveries){const row=el('div',undefined,'log');row.append(el('span',date(d.created)+' · '+names[d.channel]),el('div',(d.status==='simulated'?'演练成功':d.status==='accepted'?'接口已接受':'发送失败')+(d.detail?' · '+d.detail:''),d.status==='failed'?'failed':''));logs.append(row);}
+ const logs=$('#deliveries');logs.replaceChildren();if(!state.deliveries.length){logs.append(el('div','还没有发送记录','log empty-log'));}for(const d of state.deliveries){const row=el('div',undefined,'log');row.append(el('span',date(d.created)+' · '+names[d.channel]),el('div',(d.status==='simulated'?'演练成功':d.status==='accepted'?'接口已接受':'发送失败')+(d.detail?' · '+d.detail:''),d.status==='failed'?'failed':''));logs.append(row);}
  renderGroups();renderConnections();
  renderQuietHours();
  if(!intervalDirty)$('#call-interval').value=state.call_interval;
@@ -58,12 +61,25 @@ function renderGroups(){
  for(const id of ['group-select-all','group-clear-all'])$('#'+id).disabled=groupSaving||!visible.length;
  $('#group-keyword').disabled=groupSaving;$('#group-filter-form button').disabled=groupSaving;
  const chips=$('#group-keywords');chips.replaceChildren();for(const keyword of draft.keywords){const button=el('button',keyword+' ×','keyword-chip');button.type='button';button.disabled=groupSaving;button.setAttribute('aria-label','移除隐藏关键词：'+keyword);button.onclick=()=>{groupDraft(groupPlatform).keywords=groupDraft(groupPlatform).keywords.filter(k=>k!==keyword);renderGroups();};chips.append(button);}
- const makeRow=g=>{const row=el('div',undefined,'group-card'),check=el('input');check.type='checkbox';check.checked=Object.hasOwn(draft.selections,g.id)?draft.selections[g.id]:!!g.enabled;check.disabled=groupSaving;check.onchange=()=>{const d=groupDraft(groupPlatform);if(check.checked===!!g.enabled)delete d.selections[g.id];else d.selections[g.id]=check.checked;updateGroupActions();};const text=el('span',g.title);text.append(el('small',(g.platform==='whatsapp'?'WHATSAPP BUSINESS':'TELEGRAM')+(isHidden(g)?' · 已隐藏':'')));const main=el('label',undefined,'group-selection');main.append(check,text);const modeLabel=el('label',undefined,'group-mention-mode'),mode=el('input');mode.type='checkbox';mode.checked=Object.hasOwn(draft.mentions_only,g.id)?draft.mentions_only[g.id]:!!g.mentions_only;mode.disabled=groupSaving;mode.onchange=()=>{const d=groupDraft(groupPlatform);if(mode.checked===!!g.mentions_only)delete d.mentions_only[g.id];else d.mentions_only[g.id]=mode.checked;updateGroupActions();};modeLabel.title='只接收直接 @ 你的消息；其它消息不提醒、不纳入职责样本。已发布版本保持不变。';modeLabel.append(mode,document.createTextNode('仅监控 @ 我'));row.append(main,modeLabel);return row;};
- const target=$('#groups');const prevHeight=target.offsetHeight;if(prevHeight>0)target.style.minHeight=prevHeight+'px';target.replaceChildren();if(!visible.length){if(isMonitoredOnly)empty(target,'暂无在监控的群组','当前未开启任何群组监控，可将筛选切换为「全部群组」进行选择。');else empty(target,'没有符合条件的群组','可调整搜索或隐藏关键词；隐藏群组在下方展开查看。');}else visible.forEach(g=>target.append(makeRow(g)));requestAnimationFrame(()=>{target.style.minHeight='';});
+ const makeRow=g=>{const row=el('div',undefined,'group-card'),check=el('input');check.type='checkbox';check.checked=Object.hasOwn(draft.selections,g.id)?draft.selections[g.id]:!!g.enabled;check.disabled=groupSaving;check.onchange=()=>{const d=groupDraft(groupPlatform);if(check.checked===!!g.enabled)delete d.selections[g.id];else d.selections[g.id]=check.checked;mode.disabled=groupSaving||!check.checked;updateGroupActions();};const text=el('span',g.title);text.append(el('small',(g.platform==='whatsapp'?'WHATSAPP BUSINESS':'TELEGRAM')+(isHidden(g)?' · 已隐藏':'')));const main=el('label',undefined,'group-selection');main.append(check,text);const modeLabel=el('label',undefined,'group-mention-mode'),mode=el('input');mode.type='checkbox';mode.checked=Object.hasOwn(draft.mentions_only,g.id)?draft.mentions_only[g.id]:!!g.mentions_only;mode.disabled=groupSaving||!check.checked;mode.onchange=()=>{const d=groupDraft(groupPlatform);if(mode.checked===!!g.mentions_only)delete d.mentions_only[g.id];else d.mentions_only[g.id]=mode.checked;updateGroupActions();};modeLabel.title='只接收直接 @ 你的消息；其它消息不提醒、不纳入职责样本。已发布版本保持不变。';modeLabel.append(mode,document.createTextNode('仅监控 @ 我'));row.append(main,modeLabel);return row;};
+ const target=$('#groups');target.replaceChildren();if(!visible.length){if(isMonitoredOnly)empty(target,'暂无在监控的群组','当前未开启任何群组监控，可将筛选切换为「全部群组」进行选择。');else empty(target,'没有符合条件的群组','可调整搜索或隐藏关键词；隐藏群组在下方展开查看。');}else visible.forEach(g=>target.append(makeRow(g)));
  const hiddenVisible=isMonitoredOnly?hidden.filter(g=>isMonitored(g)):hidden;
  $('#hidden-groups-section').hidden=!hiddenVisible.length;
  $('#hidden-groups-summary').textContent=isMonitoredOnly?`隐藏的在监控群组（${hiddenVisible.length}）`:`隐藏的群组（${hidden.length}） · 其中 ${hidden.filter(g=>g.enabled).length} 个仍在监控`;
  const hiddenTarget=$('#hidden-groups');hiddenTarget.replaceChildren();hiddenVisible.forEach(g=>hiddenTarget.append(makeRow(g)));
+}
+
+function renderGroupSkeleton(target=$('#groups')){
+ if(!target)return;
+ target.innerHTML=Array.from({length:4},()=>`
+  <div class="group-card skeleton-card">
+   <span class="skeleton-check"></span>
+   <div class="skeleton-content">
+    <span class="skeleton-line title"></span>
+    <span class="skeleton-line sub"></span>
+   </div>
+  </div>
+ `).join('');
 }
 
 function connectionTone(status){return status==='connected'?'online':['connecting','reconnecting','waiting','needs_scan','needs_login'].includes(status)?'pending':'offline';}
@@ -93,7 +109,7 @@ function renderConnections(){
    await refresh();
    if(name==='telegram')await refreshLogin();
    else if(!disconnect){await showQr();}
-   toast(disconnect?(online?'已断开连接，下次需要重新登录':'已取消连接'):'请重新'+(name==='whatsapp'?'扫码':'登录'));
+   toast(disconnect?(online?'已断开连接，下次需要重新登录':'已取消连接'):(name==='whatsapp'?'正在尝试重新连接；若会话已失效，请扫码':'请重新登录'));
    if(result.remote_logout===false)showError(Error('本地登录会话已清除；远端退出未确认，可在 '+platform+' 的设备设置中移除此设备。'));
   });
  };
@@ -138,7 +154,28 @@ function renderConnections(){
  if($('#bark-key')&&state.configured.bark_away)$('#bark-key').placeholder='已配置时无需重填，输入可更换 Key';
 }
 
-async function refresh(){if(loading)return;loading=true;try{state=await api('/api/state');render();showNewGroups();if(page==='setup'){await refreshLogin();if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')await showQr();}}catch(e){showError(e);}finally{loading=false;}}
+async function refresh(silent=false){
+ if(loading)return;
+ loading=true;
+ if(!silent&&page==='groups')renderGroupSkeleton();
+ const finish=silent?(()=>{}) : loadingUI.begin('[data-load-group="state"]');
+ try{
+  const s=await api('/api/state');
+  state=s;
+  finish();
+  render();
+  showNewGroups();
+  if(page==='setup'){
+   await refreshLogin();
+   if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')await showQr();
+  }
+ }catch(e){
+  finish(e,refresh);
+  showError(e);
+ }finally{
+  loading=false;
+ }
+}
 
 const pages={inbox:['提醒收件箱','需要你的时候，及时找到你。'],groups:['监控群组','把注意力留给真正重要的对话。'],samples:['职责样本','从你的判断开始，理解你的工作。'],setup:['连接与设置','一次连接，持续关注。']};
 
@@ -152,9 +189,12 @@ function getInitialPage(){
  return 'inbox';
 }
 
+let pageRequest=0;
 async function setPage(targetPage,syncUrl=true){
  if(!pages[targetPage])targetPage='inbox';
+ $('#error').hidden=true;
  page=targetPage;
+ const currentTicket=++pageRequest;
  try{localStorage.setItem('active-page',page);}catch{}
  if(syncUrl){
   history.replaceState(null,'','#'+page);
@@ -164,27 +204,69 @@ async function setPage(targetPage,syncUrl=true){
  $('#page-title').textContent=pages[page][0];
  $('#page-subtitle').textContent=pages[page][1];
  document.body.dataset.phonePage=page;
- if(page==='samples'){
-  if(typeof renderSamples==='function')await renderSamples();
- }
- if(page==='setup'){
-  await refreshLogin();
-  if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')await showQr();
+
+ if(page==='inbox'){
+  const finish=loadingUI.begin('[data-load-group="state"]');
+  try{
+   await nextPaint();
+   const s=await api('/api/state');
+   if(currentTicket!==pageRequest)return;
+    state=s;
+    finish();
+    render();
+  }catch(e){
+   finish(e,()=>setPage('inbox'));
+   showError(e);
+  }
+ }else if(page==='groups'){
+  renderGroupSkeleton();
+  const finish=loadingUI.begin('#groups, #group-results');
+  try{
+    await nextPaint();
+    state=await api('/api/state');
+    if(currentTicket!==pageRequest)return;
+    finish();
+    renderBadge();
+    renderGroups();
+  }catch(e){
+   finish(e,()=>setPage('groups'));
+   showError(e);
+  }
+ }else if(page==='samples'){
+  if(typeof renderSamples==='function')await Promise.all([ensureLearningLoaded(),renderSamples()]);
+ }else if(page==='setup'){
+  const finish=loadingUI.begin('section[data-panel="setup"] .setup-card-body');
+  try{
+   await nextPaint();
+   const tasks=[refreshLogin()];
+   if(!state)tasks.push(api('/api/state').then(s=>{state=s;}));
+   await Promise.all(tasks);
+   if(currentTicket!==pageRequest)return;
+    finish();
+    if(state){
+     renderConnections();
+     renderQuietHours();
+     if(!intervalDirty)$('#call-interval').value=state.call_interval;
+     if(!intervalDirty)$('#push-interval').value=state.push_interval;
+    }
+   if(connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')await showQr();
+  }catch(e){
+   finish(e,()=>setPage('setup'));
+   showError(e);
+  }
  }
 }
 
-document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>action(async()=>{
- await setPage(b.dataset.page,true);
-}));
+document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{setPage(b.dataset.page,true).catch(showError);});
 
 window.addEventListener('hashchange',()=>{
  const hash=location.hash.replace(/^#/,'');
- if(pages[hash]&&hash!==page)action(async()=>setPage(hash,false));
+ if(pages[hash]&&hash!==page)setPage(hash,false).catch(showError);
 });
 
 const brandLink=$('.brand');
 if(brandLink){
- brandLink.onclick=e=>{e.preventDefault();action(async()=>setPage('inbox',true));};
+ brandLink.onclick=e=>{e.preventDefault();setPage('inbox',true).catch(showError);};
 }
 document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>action(async()=>{await api('/api/mode',{mode:b.dataset.mode});toast('已切换为'+names[b.dataset.mode]);}));
 document.querySelectorAll('[data-test]').forEach(b=>b.onclick=()=>action(async()=>{b.disabled=true;$('#test-note').textContent='正在测试，请稍候…';try{const r=await api('/api/test/'+b.dataset.test,{});$('#test-note').textContent=r.status==='simulated'?'演练测试通过。真实提醒尚未开启，没有向设备发送通知。':r.status==='accepted'?'接口已接受测试请求。请检查设备是否真的响铃或震动；这次测试不会自动重复。':'测试失败：'+r.detail;}catch(error){$('#test-note').textContent=error.message;throw error;}finally{b.disabled=false;}}));
@@ -198,6 +280,7 @@ let qrLoading=false;
 async function showQr(){
  if(qrLoading||state?.connections.whatsapp?.state==='connected'||state?.disconnected?.whatsapp||state?.connections.whatsapp?.state==='logged_out'||state?.connections.whatsapp?.state==='qr_expired')return;
  qrLoading=true;
+ const finish=loadingUI.begin('#qr-box',{initial:!!$('#qr-image').getAttribute('src')});
  try{
   const status=await api('/api/whatsapp/qr');
    if(status.state==='connected'){
@@ -236,13 +319,12 @@ async function showQr(){
   if(status.image){$('#qr-image').src=status.image;$('#wa-status').textContent='打开 WhatsApp → 已关联设备 → 关联设备，扫描二维码。';}
   else{$('#qr-image').removeAttribute('src');$('#wa-status').textContent=status.state==='connected'?'登录已恢复，正在更新连接状态…':'正在连接 WhatsApp…';}
  }catch(e){$('#qr-box').hidden=true;$('#qr-image').removeAttribute('src');$('#wa-status').textContent='暂时无法读取二维码：'+e.message;showError(e);}
- finally{qrLoading=false;}
+ finally{finish();qrLoading=false;}
 }
 
-setInterval(()=>{refresh();if(page==='setup'&&!tgBusy)refreshLogin();if(page==='setup'&&connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')showQr();},10000);
+setInterval(()=>{refresh(true);if(page==='setup'&&!tgBusy)refreshLogin();if(page==='setup'&&connPlatform==='whatsapp'&&state?.connections.whatsapp?.state!=='connected'&&!state?.disconnected?.whatsapp&&state?.connections.whatsapp?.state!=='logged_out'&&state?.connections.whatsapp?.state!=='qr_expired')showQr();},10000);
 setInterval(()=>$('#clock').textContent=new Date().toLocaleString('zh-CN',{hour12:false}),1000);
 setPage(getInitialPage(),true);
-refresh();
 const setupMedia=window.matchMedia('(min-width: 761px)');
 function syncSetupCards(e){if(e.matches)document.querySelectorAll('details.setup-card').forEach(d=>d.open=true);}
 setupMedia.addEventListener('change',syncSetupCards);
@@ -262,7 +344,7 @@ function renderLogin(s){
  loginButtons();
 }
 function loginButtons(){document.querySelectorAll('.telegram-login button').forEach(b=>b.disabled=tgBusy);const seconds=Math.max(0,Math.ceil((tgRetry-Date.now())/1000)),b=$('#tg-phone-form button');b.disabled=tgBusy||!tgConfigured||seconds>0;b.textContent=seconds?`等待 ${seconds} 秒后获取`:'获取验证码';}
-async function refreshLogin(){try{const s=await api('/api/telegram/login');if(!tgBusy)renderLogin(s);}catch(e){$('#tg-error').textContent=e.message;$('#tg-error').hidden=false;}}
+async function refreshLogin(){const finish=loadingUI.begin('.telegram-login',{initial:true});try{const s=await api('/api/telegram/login');finish();if(!tgBusy)renderLogin(s);}catch(e){finish(e,refreshLogin);$('#tg-error').textContent=e.message;$('#tg-error').hidden=false;}}
 async function loginAction(route,data){if(tgBusy)return;tgBusy=true;loginButtons();$('#tg-error').hidden=true;try{renderLogin(await api('/api/telegram/login/'+route,data));if(tgStep==='connected')await refresh();}catch(e){if(e.login)renderLogin(e.login);$('#tg-error').textContent=e.message;$('#tg-error').hidden=false;}finally{tgBusy=false;loginButtons();}}
 $('#tg-phone-form').onsubmit=e=>{e.preventDefault();loginAction('send-code',{phone:$('#tg-phone').value});};
 $('#tg-code-form').onsubmit=e=>{e.preventDefault();const code=$('#tg-code').value;$('#tg-code').value='';loginAction('code',{code});};
@@ -293,7 +375,7 @@ document.querySelectorAll('[data-group-platform]').forEach(b=>{
  b.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const platform=e.key==='Home'?'whatsapp':e.key==='End'?'telegram':groupPlatform==='whatsapp'?'telegram':'whatsapp';const next=document.querySelector('[data-group-platform="'+platform+'"]');next.click();next.focus();}};
 });
 document.querySelectorAll('[data-sample-platform]').forEach(b=>{
- b.onclick=()=>{samplePlatform=b.dataset.samplePlatform;try{localStorage.setItem('sample-platform',samplePlatform);}catch{}sampleOffset=0;action(renderSamples);};
+ b.onclick=()=>{samplePlatform=b.dataset.samplePlatform;try{localStorage.setItem('sample-platform',samplePlatform);}catch{}sampleOffset=0;syncSampleTabs(samplePlatform);$('#error').hidden=true;renderSamples().catch(showError);};
  b.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const platform=e.key==='Home'?'whatsapp':e.key==='End'?'telegram':samplePlatform==='whatsapp'?'telegram':'whatsapp';const next=document.querySelector('[data-sample-platform="'+platform+'"]');next.click();next.focus();}};
 });
 document.querySelectorAll('[data-conn-platform]').forEach(b=>{
@@ -307,7 +389,7 @@ document.querySelectorAll('[data-conn-platform]').forEach(b=>{
  b.onkeydown=e=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(e.key)){e.preventDefault();const platform=e.key==='Home'?'whatsapp':e.key==='End'?'telegram':connPlatform==='whatsapp'?'telegram':'whatsapp';const next=document.querySelector('[data-conn-platform="'+platform+'"]');next.click();next.focus();}};
 });
 $('#group-filter-form').onsubmit=e=>{e.preventDefault();if(groupSaving)return;const input=$('#group-keyword'),keyword=input.value.trim(),draft=groupDraft(groupPlatform);if(!keyword)return;if(draft.keywords.length>=50){toast('最多添加 50 个关键词');return;}if(!draft.keywords.some(k=>k.toLowerCase()===keyword.toLowerCase()))draft.keywords.push(keyword);input.value='';renderGroups();};
-function bulkSelect(enabled){const draft=groupDraft(groupPlatform),query=$('#group-search').value.trim().toLowerCase(),isMonitored=g=>Object.hasOwn(draft.selections,g.id)?draft.selections[g.id]:!!g.enabled,isMonitoredOnly=groupStatusFilter==='monitored';for(const g of state.groups.filter(g=>g.platform===groupPlatform&&g.title.toLowerCase().includes(query)&&!draft.keywords.some(k=>g.title.toLowerCase().includes(k.toLowerCase()))&&(!isMonitoredOnly||isMonitored(g)))){if(enabled===!!g.enabled)delete draft.selections[g.id];else draft.selections[g.id]=enabled;}document.querySelectorAll('#groups .group-selection input[type="checkbox"]').forEach(c=>{c.checked=enabled;});updateGroupActions();}
+function bulkSelect(enabled){const draft=groupDraft(groupPlatform),query=$('#group-search').value.trim().toLowerCase(),isMonitored=g=>Object.hasOwn(draft.selections,g.id)?draft.selections[g.id]:!!g.enabled,isMonitoredOnly=groupStatusFilter==='monitored';for(const g of state.groups.filter(g=>g.platform===groupPlatform&&g.title.toLowerCase().includes(query)&&!draft.keywords.some(k=>g.title.toLowerCase().includes(k.toLowerCase()))&&(!isMonitoredOnly||isMonitored(g)))){if(enabled===!!g.enabled)delete draft.selections[g.id];else draft.selections[g.id]=enabled;}document.querySelectorAll('#groups .group-selection input[type="checkbox"]').forEach(c=>{c.checked=enabled;c.closest('.group-card').querySelector('.group-mention-mode input').disabled=groupSaving||!enabled;});updateGroupActions();}
 $('#group-select-all').onclick=()=>bulkSelect(true);$('#group-clear-all').onclick=()=>bulkSelect(false);
 $('#group-reset').onclick=()=>{delete groupDrafts[groupPlatform];renderGroups();};
 $('#group-save').onclick=()=>action(async()=>{if(groupSaving)return;const platform=groupPlatform,payload=JSON.parse(JSON.stringify(groupDraft(platform)));groupSaving=true;renderGroups();try{const result=await api('/api/group-settings/'+platform,payload);state.group_settings||={};state.group_settings[platform]={keywords:result.keywords,revision:result.revision};for(const g of state.groups.filter(g=>g.platform===platform)){if(Object.hasOwn(payload.selections,g.id))g.enabled=payload.selections[g.id];if(Object.hasOwn(payload.mentions_only,g.id))g.mentions_only=payload.mentions_only[g.id];}delete groupDrafts[platform];toast('当前平台设置已保存');}finally{groupSaving=false;renderGroups();}});

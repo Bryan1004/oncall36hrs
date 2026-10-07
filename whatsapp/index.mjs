@@ -5,7 +5,7 @@ import path from 'node:path';
 import makeWASocket, {useMultiFileAuthState, normalizeMessageContent, jidNormalizedUser, fetchLatestBaileysVersion} from '@whiskeysockets/baileys';
 import pino from 'pino';
 import {normalize} from './normalize.mjs';
-import {closePolicy, restartAfterAuth} from './connection-policy.mjs';
+import {closePolicy} from './connection-policy.mjs';
 
 process.umask(0o077);
 const dir = process.env.DATA_DIR || './data';
@@ -14,10 +14,20 @@ if (token.length < 24) throw new Error('BRIDGE_TOKEN must have at least 24 chara
 const appUrl = process.env.APP_URL || 'http://localhost:8000';
 await mkdir(path.join(dir, 'spool'), {recursive: true});
 let socket, qr = null, lastQr = null, state = 'connecting', selected = new Set(), selfIds = new Set();
-let reconnectTimer, controlBusy = false, authWrites = Promise.resolve(), waVersion = null, reconnectAttempts = 0, authSaveFailed = false;
+let controlBusy = false, authWrites = Promise.resolve(), waVersion = null, authSaveFailed = false;
 const pauseFile = path.join(dir, 'paused');
+const manualStopFile = path.join(dir, 'manual-reconnect-required.json');
 let paused = false;
 try { await readFile(pauseFile); paused = true; state = 'disconnected'; } catch {}
+let manualStop = false, incident = null;
+try {
+  const saved = JSON.parse(await readFile(manualStopFile, 'utf8'));
+  manualStop = true;
+  incident = typeof saved?.id === 'string' && saved.id.length < 100 ? saved : null;
+  if (!paused) state = ['logged_out', 'qr_expired'].includes(saved?.state) ? saved.state : 'error';
+} catch {
+  try { await readFile(manualStopFile); manualStop = true; if (!paused) state = 'error'; } catch {}
+}
 
 try {
   const latest = await fetchLatestBaileysVersion();
@@ -35,6 +45,17 @@ try {
   }
 } catch { /* First startup has no selected groups. */ }
 const logger = pino({level: 'silent'});
+const networkCodes = new Set(['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT',
+  'EHOSTUNREACH', 'ENETUNREACH', 'EAI_AGAIN', 'ENOTFOUND', 'ERR_TLS_CERT_ALTNAME_INVALID']);
+const networkCode = error => {
+  for (const code of [error?.code, error?.cause?.code]) if (networkCodes.has(code)) return code;
+  return null;
+};
+const statusCode = error => {
+  const code = error?.output?.statusCode;
+  return Number.isInteger(code) && code >= 100 && code <= 599 ? code : null;
+};
+const logConnection = (event, fields) => console.info(JSON.stringify({event, ...fields}));
 const safeEqual = value => {
   const a = Buffer.from(value || ''), b = Buffer.from(token);
   return a.length === b.length && timingSafeEqual(a, b);
@@ -48,8 +69,8 @@ async function backend(route, options = {}) {
   return response.json();
 }
 
-async function start() {
-  if (paused) return;
+async function start(manual = false) {
+  if (paused || (manualStop && !manual)) return;
   const auth = await useMultiFileAuthState(path.join(dir, 'auth'));
   if (paused) return;
   const socketOpts = {
@@ -60,40 +81,56 @@ async function start() {
   if (waVersion) socketOpts.version = waVersion;
   socket = makeWASocket(socketOpts);
   const activeSocket = socket;
+  const createdAt = Date.now();
+  let openedAt = null;
   let paired = false, hadQr = false, closed = false;
+  let connectionUpdates = Promise.resolve();
   socket.ev.on('creds.update', () => {
-    if(!paused && socket === activeSocket) authWrites = authWrites.then(auth.saveCreds).catch(() => {authSaveFailed=true;state='error';});
+    if(!paused && socket === activeSocket) authWrites = authWrites.then(auth.saveCreds).catch(error => {
+      authSaveFailed=true;state='error';
+      logConnection('wa_auth_save_failed', {network_code: networkCode(error)});
+    });
   });
   socket.ev.on('connection.update', update => {
+    connectionUpdates = connectionUpdates.then(async () => {
     if(paused || socket !== activeSocket) return;
     if (update.qr) { hadQr = true; qr = update.qr; lastQr = update.qr; state = 'needs_scan'; }
     if (update.isNewLogin) { paired = true; qr = null; lastQr = null; state = 'connecting'; }
     if (update.connection === 'open') {
-      state = 'connected'; qr = null; lastQr = null; reconnectAttempts = 0;
+      state = 'connected'; qr = null; lastQr = null;
+      openedAt = Date.now();
+      logConnection('wa_connection_opened', {connect_ms: openedAt - createdAt});
+      incident = null;
+      try { await unlink(manualStopFile); manualStop = false; } catch (error) {
+        if (error?.code !== 'ENOENT') logConnection('wa_manual_stop_clear_failed', {network_code: networkCode(error)});
+        else manualStop = false;
+      }
       selfIds = new Set([socket.user?.id, socket.user?.lid].filter(Boolean).map(jidNormalizedUser));
     }
     if (update.connection === 'close' && !closed) {
       closed = true;
       qr = null;
-      clearTimeout(reconnectTimer);
       const error = update.lastDisconnect?.error;
       const decision = closePolicy({error,
         authenticated: paired || !!auth.state.creds.me || !!auth.state.creds.registered,
-        hadQr, attempts: reconnectAttempts});
+        hadQr});
       state = authSaveFailed ? 'error' : decision.state;
       if (state !== 'qr_expired') lastQr = null;
-      // Record only a status code and decision; never credentials, QR or messages.
-      console.info(JSON.stringify({event: 'wa_connection_closed',
-        code: error?.output?.statusCode ?? null, state, attempts: reconnectAttempts}));
-      if (!authSaveFailed && decision.delay !== undefined) {
-        reconnectAttempts += 1;
-        reconnectTimer = setTimeout(() => {
-          restartAfterAuth(authWrites,
-            () => !paused && socket === activeSocket && !authSaveFailed,
-            start).catch(() => { state = 'error'; });
-        }, decision.delay);
-      }
+      manualStop = true;
+      incident = {id: randomUUID(), state};
+      try { await writeFile(manualStopFile, JSON.stringify(incident)); }
+      catch (writeError) { logConnection('wa_manual_stop_save_failed', {network_code: networkCode(writeError)}); }
+      // Keep diagnostics free of credentials, QR data, message content and raw errors.
+      logConnection('wa_connection_closed', {
+        code: statusCode(error), network_code: networkCode(error), state,
+        socket_uptime_ms: Date.now() - createdAt,
+        online_ms: openedAt === null ? null : Date.now() - openedAt
+      });
     }
+    }).catch(error => {
+      state = 'error';
+      logConnection('wa_connection_update_failed', {network_code: networkCode(error)});
+    });
   });
   socket.ev.on('messages.upsert', async ({messages, type}) => {
     try {
@@ -128,7 +165,7 @@ async function flush() {
       await rename(selectionFile + '.tmp', selectionFile);
       savedSelection = serialized;
     }
-    await backend('/heartbeat', {method: 'POST', body: JSON.stringify({state})});
+    await backend('/heartbeat', {method: 'POST', body: JSON.stringify({state, incident: paused ? null : incident})});
     if (paused) return;
     for (const file of (await readdir(path.join(dir, 'spool'))).filter(f => f.endsWith('.json')).slice(0, 200)) {
       const target = path.join(dir, 'spool', file);
@@ -153,7 +190,9 @@ http.createServer(async (req, res) => {
       try {
         let remoteLogout=true;
         if(req.url==='/pause'){
-          await writeFile(pauseFile,'1');paused=true;clearTimeout(reconnectTimer);qr=null;lastQr=null;state='disconnected';
+          await writeFile(pauseFile,'1');paused=true;qr=null;lastQr=null;state='disconnected';
+          incident=null;manualStop=false;
+          try { await unlink(manualStopFile); } catch {}
           const prior=socket;socket=null;
           try {
             if(prior?.user){
@@ -168,16 +207,20 @@ http.createServer(async (req, res) => {
           await rm(path.join(dir,'spool'),{recursive:true,force:true});
           await mkdir(path.join(dir,'spool'),{recursive:true});
         }else{
-          clearTimeout(reconnectTimer);
+          if (state === 'connected') { res.end(JSON.stringify({ok:true,remote_logout:true})); return; }
           qr=null;lastQr=null;
           const prior=socket;socket=null;
           prior?.end(new Error('Restarting connection'));
           await authWrites;
-          await rm(path.join(dir,'auth'),{recursive:true,force:true});
-          await rm(path.join(dir,'spool'),{recursive:true,force:true});
-          await mkdir(path.join(dir,'spool'),{recursive:true});
+          if (['logged_out','qr_expired'].includes(state)) await rm(path.join(dir,'auth'),{recursive:true,force:true});
           try{await unlink(pauseFile);}catch{}
-          paused=false;authSaveFailed=false;reconnectAttempts=0;state='connecting';await start();
+          paused=false;authSaveFailed=false;state='connecting';
+          try { await start(true); } catch (error) {
+            state='error';manualStop=true;incident={id:randomUUID(),state};
+            try { await writeFile(manualStopFile,JSON.stringify(incident)); }
+            catch (writeError) { logConnection('wa_manual_stop_save_failed',{network_code:networkCode(writeError)}); }
+            logConnection('wa_manual_connect_failed',{network_code:networkCode(error)});throw error;
+          }
         }
         res.end(JSON.stringify({ok:true,remote_logout:remoteLogout}));
       } finally {controlBusy=false;}
@@ -191,5 +234,12 @@ http.createServer(async (req, res) => {
   } catch { res.writeHead(503); res.end(JSON.stringify({error: 'WhatsApp暂不可用'})); }
 }).listen(3001, '0.0.0.0');
 await flush();
-await start();
+try { await start(); }
+catch (error) {
+  state = 'error'; manualStop = true;
+  incident = {id: randomUUID(), state};
+  try { await writeFile(manualStopFile, JSON.stringify(incident)); }
+  catch (writeError) { logConnection('wa_manual_stop_save_failed', {network_code: networkCode(writeError)}); }
+  logConnection('wa_start_failed', {network_code: networkCode(error)});
+}
 setInterval(flush, 5000);

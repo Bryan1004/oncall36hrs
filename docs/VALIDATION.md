@@ -144,3 +144,10 @@ WhatsApp 暂停状态修复：桥接心跳同步 disconnected 标志，状态接
 
 
 职责样本排除直接 @ 消息（2026-09-11）：直接 @ 当前账号的消息（reason='mention'）不再进入职责样本审核系统。修改覆盖：learning.py 的列表/计数/审核写入/发布，main.py 的旧 /api/samples、标签写入、导出，ai_review.py 的版本加载和参考样本选择。原始消息入库和实时提醒不受影响。迁移脚本（scripts/migrate_mention_exclusion.py）支持 --dry-run 与 --execute，清理 sample_reviews 和 label/urgent，为已发布的受污染版本创建替代版本并阻止旧版本用于 AI 评估。前端样本空状态显示排除说明，版本列表标注"已被 Vx 替代"或"清理后无可用样本"，候选/基准下拉排除已停用版本，审核提交被拒时自动刷新。78 项 Python 测试全部通过，包含 18 项新增回归场景。未实现"仅回复也排除"及"手动加入例外"。生产迁移需在服务器上执行迁移脚本。
+
+
+通知点击确认修复（2026-10-07）：移除真实确认流程的固定 5 秒等待，页面直接使用已有内联样式，避免重复的样式请求阻塞加载。监听新链接的 hashchange，以及 pageshow/focus/visibilitychange 恢复事件，浏览器复用确认页时重新提交新凭证。各请求仍确认各自消息，只有最新请求能更新页面；缺少凭证时不显示模拟成功。
+
+验证：89 项 Python 测试通过，确认接口回归补充第二条通知确认。`node tests/confirmation-browser.cjs` 的 9 组 Chromium 浏览器回归通过，覆盖立即显示结果、连续点击无需重载、三种恢复事件、网络/服务器失败重试、两种结果竞态及无凭证状态。运行需 Node 与 Playwright，可通过 `PLAYWRIGHT_CHROMIUM_EXECUTABLE` 指定本机 Chrome。接口使用模拟响应；未发送真实 Bark 通知，尚未验证真实 iPhone 或部署到服务器。
+
+确认页另在 390/1280 px 下验证四种状态，卡片高度均为 330 px，无横向溢出。全站 `tests/skeleton-layout.cjs` 在 390 px 设置页的首次加载高度断言失败（163.1875 → 277.578125 px），发生在执行确认页用例之前；本次未修改设置页代码。

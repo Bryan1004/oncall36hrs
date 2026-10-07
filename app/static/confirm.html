@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <title>警报已确认 · On Call 36 小时</title>
+  <title>消息确认 · On Call 36 小时</title>
   <link rel="icon" type="image/x-icon" href="/favicon.ico">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <meta name="theme-color" content="#f4f5f2" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#131815" media="(prefers-color-scheme: dark)">
-  <link rel="stylesheet" href="/confirm/style.css">
+  <script src="/confirm/client.js" defer></script>
   <style>
     :root {
       --bg: #f4f5f2;
@@ -414,11 +414,16 @@
       font-weight: 600;
     }
 
+    .state-loading #status,.state-loading #detail{position:relative;color:transparent}
+    .state-loading #status::after,.state-loading #detail::after{content:"";position:absolute;inset:3px 12%;border-radius:5px;background:linear-gradient(90deg,var(--line),var(--green-light),var(--line));background-size:200% 100%;animation:confirm-skeleton 1.6s ease-in-out infinite}
+    .state-loading #detail::after{inset:3px 0}
+    @keyframes confirm-skeleton{to{background-position:-200% 0}}
+    @media(prefers-reduced-motion:reduce){.state-loading #status::after,.state-loading #detail::after{animation:none}}
+
     [hidden] {
       display: none !important;
     }
   </style>
-  <script src="/confirm/client.js" defer></script>
 </head>
 <body class="state-loading">
   <div class="container">

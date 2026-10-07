@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>待处理提醒空状态设计提案 - On Call 36 小时</title>
+  <link rel="stylesheet" href="/assets/style.css">
+  <style>
+    :root {
+      --preview-bg: #f4f5f2;
+    }
+
+    body.preview-page {
+      margin: 0;
+      padding: 32px 24px 80px;
+      background: var(--preview-bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif;
+      color: #263a32;
+    }
+
+    .preview-container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    .preview-header {
+      margin-bottom: 36px;
+      text-align: center;
+    }
+
+    .preview-header h1 {
+      font-size: 26px;
+      font-weight: 700;
+      margin: 0 0 8px;
+      letter-spacing: -0.5px;
+    }
+
+    .preview-header p {
+      color: #7a8680;
+      font-size: 14px;
+      margin: 0;
+    }
+
+    .preview-section {
+      margin-bottom: 40px;
+      background: #ffffff;
+      border: 1px solid #dfe5df;
+      border-radius: 14px;
+      padding: 24px;
+      box-shadow: 0 4px 20px rgba(38, 58, 50, 0.03);
+    }
+
+    .section-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #edf0eb;
+    }
+
+    .section-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      background: #edf4ee;
+      color: #276d51;
+      padding: 4px 10px;
+      border-radius: 12px;
+    }
+
+    .section-desc {
+      font-size: 13px;
+      color: #7a8680;
+    }
+
+    /* =========================================================
+   方案 A：极简禅意 · 宁静护眼 (Calm Zen & Shield)
+   ========================================================= */
+    .empty-v1 {
+      background: linear-gradient(180deg, #fafbf9 0%, #f4f7f3 100%);
+      border: 1px solid #dce5dc;
+      border-radius: 12px;
+      padding: 44px 24px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .empty-v1::before {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 280px;
+      height: 180px;
+      background: radial-gradient(circle, rgba(39, 109, 81, 0.07) 0%, rgba(39, 109, 81, 0) 70%);
+      pointer-events: none;
+    }
+
+    .empty-v1 .icon-wrap {
+      width: 52px;
+      height: 52px;
+      margin: 0 auto 16px;
+      background: #ffffff;
+      border: 1px solid #cfddcf;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #276d51;
+      box-shadow: 0 4px 14px rgba(39, 109, 81, 0.08);
+      position: relative;
+    }
+
+    .empty-v1 .icon-pulse-dot {
+      position: absolute;
+      top: 2px;
+      right: 2px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #276d51;
+      border: 2px solid #fff;
+      box-shadow: 0 0 0 3px rgba(39, 109, 81, 0.18);
+    }
+
+    .empty-v1 h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #263a32;
+      margin: 0 0 6px;
+    }
+
+    .empty-v1 p {
+      font-size: 13px;
+      color: #7a8680;
+      margin: 0 0 20px;
+      line-height: 1.5;
+    }
+
+    .empty-v1 .actions {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .empty-v1 .actions .secondary {
+      background: #ffffff;
+      border: 1px solid #cfdacf;
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: #263a32;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .empty-v1 .actions .secondary:hover {
+      background: #edf4ee;
+      border-color: #b8cdbb;
+    }
+
+    /* =========================================================
+   方案 B：现代雷达微光 · 科技感 (Radar Scan & Status)
+   ========================================================= */
+    .empty-v2 {
+      background: #ffffff;
+      border: 1px solid #e1e7e1;
+      border-radius: 12px;
+      padding: 40px 24px;
+      text-align: center;
+      position: relative;
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 2px 8px rgba(0, 0, 0, 0.02);
+    }
+
+    .empty-v2 .radar-ring {
+      width: 58px;
+      height: 58px;
+      margin: 0 auto 16px;
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .empty-v2 .radar-circle-1 {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      border: 1px solid rgba(39, 109, 81, 0.22);
+    }
+
+    .empty-v2 .radar-circle-2 {
+      position: absolute;
+      inset: 9px;
+      border-radius: 50%;
+      background: rgba(39, 109, 81, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #276d51;
+    }
+
+    .empty-v2 .status-pill-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      background: #f8faf7;
+      border: 1px solid #e2e9e2;
+      border-radius: 20px;
+      padding: 4px 14px;
+      margin-bottom: 14px;
+      font-size: 11.5px;
+      color: #5c6c64;
+    }
+
+    .empty-v2 .status-pill-group span {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .empty-v2 .status-dot-sm {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #276d51;
+    }
+
+    .empty-v2 h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #263a32;
+      margin: 0 0 6px;
+    }
+
+    .empty-v2 p {
+      font-size: 13px;
+      color: #7a8680;
+      margin: 0 0 18px;
+    }
+
+    .empty-v2 .quick-bar {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    /* =========================================================
+   方案 C：精致徽章印章 · 全绿通行 (Verified All-Clear)
+   ========================================================= */
+    .empty-v3 {
+      background: #fbfdfa;
+      border: 1px solid #dce7dc;
+      border-radius: 12px;
+      padding: 42px 20px;
+      text-align: center;
+    }
+
+    .empty-v3 .badge-icon {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 14px;
+      background: #edf4ee;
+      color: #276d51;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+    }
+
+    .empty-v3 .eyebrow {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: #709475;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .empty-v3 h3 {
+      font-size: 17px;
+      font-weight: 650;
+      color: #263a32;
+      margin: 0 0 6px;
+    }
+
+    .empty-v3 p {
+      font-size: 13px;
+      color: #7a8680;
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    /* =========================================================
+   方案 D：轻量虚线卡片（现款优化升级版） (Refined Dashed Card)
+   ========================================================= */
+    .empty-v4 {
+      border: 1px dashed #bcccbc;
+      background: #f8faf6;
+      border-radius: 12px;
+      padding: 36px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      box-sizing: border-box;
+    }
+
+    .empty-v4 .check-ring {
+      width: 26px;
+      height: 26px;
+      min-width: 26px;
+      min-height: 26px;
+      margin: 0 auto 10px;
+      border-radius: 50%;
+      border: 1.5px solid #276d51;
+      color: #276d51;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      flex-shrink: 0;
+    }
+
+    .empty-v4 .check-ring svg {
+      width: 13px;
+      height: 13px;
+      display: block;
+      margin: 0 auto;
+    }
+
+    .empty-v4 h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #263a32;
+      margin: 0 0 6px;
+      text-align: center;
+      width: 100%;
+    }
+
+    .empty-v4 p {
+      font-size: 12.5px;
+      color: #7a8680;
+      margin: 0;
+      line-height: 1.5;
+      text-align: center;
+      width: 100%;
+    }
+  </style>
+</head>
+
+<body class="preview-page">
+
+  <div class="preview-container">
+    <header class="preview-header">
+      <span class="eyebrow" style="font-size:11px;letter-spacing:2px;color:#8a968e;font-weight:600;">EMPTY STATE DESIGN
+        PROPOSALS</span>
+      <h1>待处理提醒 · 空状态重构设计方案</h1>
+      <p>为「待处理提醒」空状态量身定制了 4 种不同视觉与交互风格的方案，可直观对比并选择最佳实现。</p>
+    </header>
+
+    <!-- 方案 A -->
+    <section class="preview-section">
+      <div class="section-meta">
+        <div class="section-tag">方案 A（推荐 · 极简呼吸感）</div>
+        <div class="section-desc">柔和居中光晕 + 状态呼吸圆点 + 快捷添加演练按钮</div>
+      </div>
+      <div class="empty-v1">
+        <div class="icon-wrap">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+          <span class="icon-pulse-dot" title="监控正常监听中"></span>
+        </div>
+        <h3>现在，没有需要处理的提醒</h3>
+        <p>所有监控群组运行平稳。需要你处理时，会第一时间自动提醒。</p>
+        <div class="actions">
+          <button class="secondary" type="button" onclick="alert('触发演练消息')">＋ 添加演练消息</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 方案 B -->
+    <section class="preview-section">
+      <div class="section-meta">
+        <div class="section-tag">方案 B（现代雷达状态型）</div>
+        <div class="section-desc">双层同心圆雷达波纹 + 实时通道就绪状态徽章</div>
+      </div>
+      <div class="empty-v2">
+        <div class="radar-ring">
+          <div class="radar-circle-1"></div>
+          <div class="radar-circle-2">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="m4.93 4.93 4.24 4.24" />
+              <path d="m14.83 9.17 4.24-4.24" />
+              <path d="m14.83 14.83 4.24 4.24" />
+              <path d="m9.17 14.83-4.24 4.24" />
+              <circle cx="12" cy="12" r="2" />
+            </svg>
+          </div>
+        </div>
+        <div class="status-pill-group">
+          <span><i class="status-dot-sm"></i> WhatsApp 正常</span>
+          <span><i class="status-dot-sm"></i> Telegram 正常</span>
+          <span><i class="status-dot-sm"></i> Bark 响铃就绪</span>
+        </div>
+        <h3>雷达监听中 · 暂无紧急提醒</h3>
+        <p>连接账号并选择群组，或点击下方演练验证通知通路。</p>
+        <div class="quick-bar">
+          <button class="secondary" type="button"
+            style="border:1px solid #cfdacf;border-radius:6px;padding:6px 12px;font-size:12px;background:#fff;cursor:pointer;">＋
+            发送测试演练</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 方案 C -->
+    <section class="preview-section">
+      <div class="section-meta">
+        <div class="section-tag">方案 C（精致印章徽标）</div>
+        <div class="section-desc">品牌色方圆徽标 + 顶部英文小标，极具商务品质感</div>
+      </div>
+      <div class="empty-v3">
+        <div class="badge-icon">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <path d="m9 12 2 2 4-4" />
+          </svg>
+        </div>
+        <span class="eyebrow">ALL CLEAR · ON DUTY</span>
+        <h3>当前暂无待办提醒</h3>
+        <p>连接账号并选择群组，或添加一条演练消息</p>
+      </div>
+    </section>
+
+    <!-- 方案 D -->
+    <section class="preview-section">
+      <div class="section-meta">
+        <div class="section-tag">方案 D（轻量虚线 · 现款质感升级版）</div>
+        <div class="section-desc">保留现款轻量虚线结构，替换扁平灰色符号为清晰精致的圆环 Checkmark</div>
+      </div>
+      <div class="empty-v4">
+        <div class="check-ring">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3.5 8.5L6.5 11.5L12.5 5" />
+          </svg>
+        </div>
+        <h3>现在，没有需要处理的提醒</h3>
+        <p>连接账号并选择群组，或添加一条演练消息</p>
+      </div>
+    </section>
+
+  </div>
+
+</body>
+
+</html>

@@ -1,5 +1,6 @@
 import pytest
 import httpx
+from unittest.mock import AsyncMock
 from app.config import Config
 from app.main import create_app
 
@@ -198,4 +199,51 @@ async def test_whatsapp_qr_expired_returns_image(config, monkeypatch):
         assert data.get("image", "").startswith("data:image/svg+xml;base64,")
 
 
+@pytest.mark.asyncio
+async def test_whatsapp_disconnect_alert_is_once_per_incident(config):
+    config.delivery_enabled = True
+    incident = {"id": "11111111-1111-4111-8111-111111111111", "state": "error"}
+    app = create_app(config, workers=False)
+    notify = AsyncMock(return_value="accepted")
+    app.state.dispatcher.notifier.send_connection_alert = notify
+    headers = {"Authorization": "Bearer " + config.bridge_token}
+    async with app.router.lifespan_context(app), httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers
+    ) as client:
+        for _ in range(2):
+            assert (await client.post("/internal/wa/heartbeat", json={"state": "error", "incident": incident})).status_code == 200
+        notify.assert_awaited_once_with("error")
+        assert len(app.state.store.rows("SELECT * FROM deliveries WHERE channel='connection'")) == 1
+    restored = create_app(config, workers=False)
+    restored_notify = AsyncMock(return_value="accepted")
+    restored.state.dispatcher.notifier.send_connection_alert = restored_notify
+    async with restored.router.lifespan_context(restored), httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=restored), base_url="http://test", headers=headers
+    ) as client:
+        await client.post("/internal/wa/heartbeat", json={"state": "error", "incident": incident})
+        restored_notify.assert_not_awaited()
+        incident["id"] = "22222222-2222-4222-8222-222222222222"
+        await client.post("/internal/wa/heartbeat", json={"state": "logged_out", "incident": {**incident, "state": "logged_out"}})
+        restored_notify.assert_awaited_once_with("logged_out")
+
+
+@pytest.mark.asyncio
+async def test_whatsapp_disconnect_alert_failure_can_retry(config):
+    config.delivery_enabled = True
+    app = create_app(config, workers=False)
+    notify = AsyncMock(side_effect=[RuntimeError("provider unavailable"), "accepted"])
+    app.state.dispatcher.notifier.send_connection_alert = notify
+    incident = {"id": "33333333-3333-4333-8333-333333333333", "state": "error"}
+    headers = {"Authorization": "Bearer " + config.bridge_token}
+    async with app.router.lifespan_context(app), httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test", headers=headers
+    ) as client:
+        body = {"state": "error", "incident": incident}
+        await client.post("/internal/wa/heartbeat", json=body)
+        await client.post("/internal/wa/heartbeat", json=body)
+        assert notify.await_count == 1
+        app.state.store.set("wa_disconnect_alert_next", 0)
+        await client.post("/internal/wa/heartbeat", json=body)
+        assert notify.await_count == 2
+        assert app.state.store.get("wa_disconnect_alert_sent") == incident["id"]
 

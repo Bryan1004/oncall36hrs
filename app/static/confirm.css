@@ -405,3 +405,10 @@ p#detail {
 [hidden] {
   display: none !important;
 }
+
+/* Text placeholders stay inside the existing fixed-height confirmation card. */
+.state-loading #status,.state-loading #detail{position:relative;color:transparent}
+.state-loading #status::after,.state-loading #detail::after{content:"";position:absolute;inset:3px 12%;border-radius:5px;background:linear-gradient(90deg,var(--line),var(--green-light),var(--line));background-size:200% 100%;animation:confirm-skeleton 1.6s ease-in-out infinite}
+.state-loading #detail::after{inset:3px 0}
+@keyframes confirm-skeleton{to{background-position:-200% 0}}
+@media(prefers-reduced-motion:reduce){.state-loading #status::after,.state-loading #detail::after{animation:none}}
